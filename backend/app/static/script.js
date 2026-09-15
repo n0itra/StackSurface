@@ -182,24 +182,82 @@ let currentStep = -1;
 let running = false;
 let timers = [];
 
-// Improved API wrapper with better error handling and strict headers
+let accessToken = localStorage.getItem("reconx-access-token");
+let refreshToken = localStorage.getItem("reconx-refresh-token");
+
 function api(url, options = {}) {
-  if (!window.__API_KEY__) {
-    console.warn("API Key is missing in the frontend! Requests may be rejected by the backend.");
-  }
-  
-  const headers = {
-    "x-api-key": window.__API_KEY__ || "",
-    ...(options.headers || {})
-  };
-  
-  return fetch(url, { ...options, headers })
+  const headers = {...(options.headers || {})};
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  return fetch(url, { ...options, headers }).then(async response => {
+    if (response.status !== 401 || !refreshToken || url.startsWith("/api/auth/")) return response;
+    const refreshed = await fetch("/api/auth/refresh", {method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({refresh_token: refreshToken})});
+    if (!refreshed.ok) return response;
+    const data = await refreshed.json();
+    setAuthenticated(data.session, data.user);
+    return fetch(url, {...options, headers: {...(options.headers || {}), Authorization: `Bearer ${accessToken}`}});
+  })
     .catch(err => {
       // Catch network errors specifically (like backend down or CORS issues)
       console.error(`Network Error while fetching ${url}:`, err);
       throw err;
     });
 }
+
+const authPage = document.getElementById("authPage");
+const authForm = document.getElementById("authForm");
+const authToggle = document.getElementById("authToggle");
+const authSubmit = document.getElementById("authSubmit");
+const authMessage = document.getElementById("authMessage");
+let signupMode = false;
+
+function setAuthenticated(session, user) {
+  accessToken = session?.access_token || accessToken;
+  refreshToken = session?.refresh_token || refreshToken;
+  if (accessToken) localStorage.setItem("reconx-access-token", accessToken);
+  if (refreshToken) localStorage.setItem("reconx-refresh-token", refreshToken);
+  authPage.style.display = "none";
+  document.querySelector("main").classList.remove("auth-required");
+  document.getElementById("userEmail").textContent = user?.email || "";
+  document.getElementById("logoutBtn").hidden = false;
+  loadProjects();
+}
+
+authToggle.addEventListener("click", () => {
+  signupMode = !signupMode;
+  authSubmit.textContent = signupMode ? "Create account" : "Sign in";
+  authToggle.textContent = signupMode ? "Already have an account? Sign in" : "Create an account";
+});
+authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  authMessage.textContent = "";
+  const endpoint = signupMode ? "/api/auth/signup" : "/api/auth/login";
+  try {
+    const response = await fetch(endpoint, {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({email: document.getElementById("authEmail").value,
+        password: document.getElementById("authPassword").value})});
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || "Authentication failed");
+    if (!data.session) {
+      authMessage.textContent = "Check your email to confirm your account, then sign in.";
+      signupMode = false;
+      authSubmit.textContent = "Sign in";
+      return;
+    }
+    setAuthenticated(data.session, data.user);
+  } catch (error) {
+    authMessage.textContent = error.message;
+  }
+});
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  await api("/api/auth/logout", {method: "POST"}).catch(() => {});
+  localStorage.removeItem("reconx-access-token");
+  localStorage.removeItem("reconx-refresh-token");
+  accessToken = null;
+  refreshToken = null;
+  location.reload();
+});
 
 function renderTools() {
   toolsList.innerHTML = tools.map((tool) => `
@@ -432,16 +490,42 @@ document.getElementById("workspace").classList.add("collapsed");
 
 async function loadProjects() {
   const select = document.getElementById("projectSelect");
+  if (!accessToken) return;
   try {
     const res = await api("/api/projects");
-    if (!res.ok) return; 
+    if (res.status === 401) {
+      localStorage.removeItem("reconx-access-token");
+      localStorage.removeItem("reconx-refresh-token");
+      accessToken = null;
+      refreshToken = null;
+      authPage.style.display = "flex";
+      return;
+    }
+    if (!res.ok) return;
     const projects = await res.json();
+    renderProfileProjects(projects);
     const current = select.value;
     select.innerHTML = '<option value="">No project (one-off scan)</option>' +
       projects.map(p => `<option value="${escapeHtml(p.project_id)}">${escapeHtml(p.name)} — ${escapeHtml(p.domain)}${p.monitoring ? " 🟢" : ""}</option>`).join("");
     select.value = current;
   } catch (e) {
     console.warn("Could not load projects (Backend/Supabase unreachable).");
+  }
+
+  function renderProfileProjects(projects) {
+    const target = document.getElementById("profileProjects");
+    if (target) target.innerHTML = projects.length
+      ? projects.map(p => `<div class="profile-item"><strong>${escapeHtml(p.name)}</strong> — ${escapeHtml(p.domain)} ${p.monitoring ? "🟢 Monitoring" : ""}</div>`).join("")
+      : "<p>No projects yet.</p>";
+  }
+
+  async function loadHistory() {
+    if (!accessToken) return;
+    const response = await api("/api/history");
+    if (!response.ok) return;
+    const rows = await response.json();
+    const body = document.getElementById("historyBody");
+    body.innerHTML = rows.length ? rows.map(row => `<tr><td>${escapeHtml(row.domain)}</td><td>${escapeHtml(row.status)}</td><td>${escapeHtml(new Date(row.created_at).toLocaleString())}</td><td>${escapeHtml(row.project_id || "One-off")}</td></tr>`).join("") : '<tr><td colspan="4">No scans yet.</td></tr>';
   }
 }
 
@@ -481,7 +565,12 @@ document.getElementById("saveProjectBtn").addEventListener("click", async () => 
   }
 });
 
-loadProjects();
+if (accessToken) {
+  authPage.style.display = "none";
+  loadProjects();
+} else {
+  authPage.style.display = "flex";
+}
 
 startBtn.addEventListener("click", runScan);
 
@@ -498,7 +587,10 @@ toolsList.addEventListener("change", e => {
 document.querySelectorAll(".nav-link,[data-page]").forEach(btn => {
   btn.addEventListener("click", () => {
     const page = btn.dataset.page;
-    if(page) goTo(page);
+    if(page) {
+      goTo(page);
+      if (page === "profile") loadHistory().catch(() => {});
+    }
   });
 });
 
@@ -555,7 +647,7 @@ document.getElementById("downloadBtn").addEventListener("click", ()=>{
   const domain = domainInput.value.trim() || "example.com";
   const activeTab = document.querySelector(".result-tab.active")?.dataset.tab || "subdomains";
   const data = datasets[activeTab];
-  const reportHtml = `<!doctype html><html><head><meta charset="utf-8"><title>ReconX Report</title><style>body{font-family:Arial,sans-serif;color:#17283a;padding:36px}h1{margin:0 0 8px;font-size:28px}.meta{color:#60758a;margin-bottom:28px}h2{font-size:18px;margin-top:28px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #d6e0e8;padding:9px;text-align:left;font-size:11px}th{background:#eef4f8}.footer{margin-top:28px;color:#71869a;font-size:10px}</style></head><body><h1>ReconX Security Report</h1><div class="meta">Automated Recon • ${domain} • ${new Date().toLocaleString()}</div><h2>${data.title}</h2><p>${data.subtitle}</p><table><thead><tr>${data.columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${data.rows.map(r=>`<tr>${r.map(v=>`<td>${String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")}</td>`).join("")}</tr>`).join("")}</tbody></table><div class="footer">Generated by ReconX.</div></body></html>`;
+  const reportHtml = `<!doctype html><html><head><meta charset="utf-8"><title>StackSurface Report</title><style>body{font-family:Arial,sans-serif;color:#17283a;padding:36px}h1{margin:0 0 8px;font-size:28px}.meta{color:#60758a;margin-bottom:28px}h2{font-size:18px;margin-top:28px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #d6e0e8;padding:9px;text-align:left;font-size:11px}th{background:#eef4f8}.footer{margin-top:28px;color:#71869a;font-size:10px}</style></head><body><h1>StackSurface Security Report</h1><div class="meta">Automated Recon • ${domain} • ${new Date().toLocaleString()}</div><h2>${data.title}</h2><p>${data.subtitle}</p><table><thead><tr>${data.columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${data.rows.map(r=>`<tr>${r.map(v=>`<td>${String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")}</td>`).join("")}</tr>`).join("")}</tbody></table><div class="footer">Generated by StackSurface.</div></body></html>`;
   const reportWindow = window.open("", "_blank");
   if (!reportWindow) { alert("Please allow pop-ups to generate the PDF report."); return; }
   reportWindow.document.open(); reportWindow.document.write(reportHtml); reportWindow.document.close();

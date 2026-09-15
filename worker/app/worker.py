@@ -21,7 +21,7 @@ SCAN_DIR = Path("/scans")
 SCAN_DIR.mkdir(parents=True, exist_ok=True)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -693,11 +693,12 @@ def run_feroxbuster(scan_id, live_hosts, errors, max_hosts=10):
     return directories
 
 
-def persist_to_supabase(scan_id, domain, tools, status, **fields):
+def persist_to_supabase(scan_id, domain, tools, status, user_id=None, **fields):
     if not supabase:
         return
     row = {
         "scan_id": scan_id,
+        "user_id": user_id,
         "domain": domain,
         "status": status,
         "tools": list(tools) if tools else [],
@@ -789,7 +790,7 @@ def diff_js_dependencies(project_id, detected_libs, errors):
     return new_libs, cve_findings
 
 
-def run_scan(scan_id, domain, tools, project_id=None):
+def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
     errors = []
     tools = set(tools or [])
 
@@ -798,7 +799,7 @@ def run_scan(scan_id, domain, tools, project_id=None):
     if not is_safe_target(domain):
         msg = f"refused: {domain} resolves to a disallowed address"
         update(scan_id, status="failed", progress="100", errors=json.dumps([msg]))
-        persist_to_supabase(scan_id, domain, tools, "failed", errors=[msg])
+        persist_to_supabase(scan_id, domain, tools, "failed", user_id=user_id, errors=[msg])
         return
 
     blocked = sorted((tools & BLOCKED_TOOLS))
@@ -913,6 +914,7 @@ def run_scan(scan_id, domain, tools, project_id=None):
         added_assets=added_assets, removed_assets=removed_assets,
         new_js_dependencies=new_js_deps, js_cve_findings=js_cve_findings,
         project_id=project_id,
+        user_id=user_id,
         errors=errors,
     )
 
@@ -930,12 +932,13 @@ def main():
         domain = job["domain"]
         tools = job.get("tools", [])
         project_id = job.get("project_id")
+        user_id = job.get("user_id")
         try:
-            run_scan(scan_id, domain, tools, project_id=project_id)
+            run_scan(scan_id, domain, tools, project_id=project_id, user_id=user_id)
         except Exception:
             tb = traceback.format_exc(limit=5)
             update(scan_id, status="failed", errors=json.dumps([tb]))
-            persist_to_supabase(scan_id, domain, tools, "failed", errors=[tb])
+            persist_to_supabase(scan_id, domain, tools, "failed", user_id=user_id, errors=[tb])
 
 
 if __name__ == "__main__":

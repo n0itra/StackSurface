@@ -13,8 +13,8 @@ services:
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       SUPABASE_URL: ${SUPABASE_URL:?SUPABASE_URL must be set in .env}
-      SUPABASE_KEY: ${SUPABASE_KEY:?SUPABASE_KEY must be set in .env}
-      API_KEY: ${API_KEY:?API_KEY must be set in .env}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY must be set in .env}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY must be set in .env}
     ports:
       - "8000:8000"
     depends_on:
@@ -29,7 +29,7 @@ services:
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_KEY: ${SUPABASE_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       SECURITYTRAILS_API_KEY: ${SECURITYTRAILS_API_KEY:-}
       VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
@@ -55,7 +55,7 @@ services:
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_KEY: ${SUPABASE_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       MONITOR_POLL_INTERVAL_SECONDS: ${MONITOR_POLL_INTERVAL_SECONDS:-1800}
     depends_on:
       redis:

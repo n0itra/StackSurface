@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ReconX — Automated Reconnaissance</title>
+  <title>StackSurface — Automated Reconnaissance</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -14,18 +14,46 @@
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark">✦</div>
-        <span>ReconX</span>
+        <span>StackSurface</span>
       </div>
       <nav class="nav">
         <button class="nav-link active" data-page="home">Home</button>
         <button class="nav-link" data-page="results">Results</button>
+        <button class="nav-link" data-page="profile">Profile</button>
       </nav>
       <div class="top-actions">
+        <span id="userEmail" class="user-email"></span>
+        <button class="ghost-btn" id="logoutBtn" hidden>Log out</button>
         <button class="theme-switch" id="themeToggle" title="Toggle dark / light mode">☼ / ☾</button>
       </div>
     </header>
 
     <main>
+      <section id="authPage" class="auth-page">
+        <div class="card auth-card">
+          <h1>Welcome to StackSurface</h1>
+          <p>Sign in to keep your reconnaissance history private and synchronized.</p>
+          <form id="authForm">
+            <input id="authEmail" type="email" required autocomplete="email" placeholder="you@example.com" />
+            <input id="authPassword" type="password" required minlength="8" autocomplete="current-password" placeholder="Password (8+ characters)" />
+            <button class="primary-btn" type="submit" id="authSubmit">Sign in</button>
+          </form>
+          <button class="ghost-btn" id="authToggle" type="button">Create an account</button>
+          <p id="authMessage" role="alert"></p>
+        </div>
+      </section>
+
+      <section id="profilePage" class="page">
+        <div class="results-header"><div><h1>Profile</h1><p>Your private projects and scan history</p></div></div>
+        <div class="card table-card">
+          <div class="table-toolbar"><div class="table-heading"><h2>Projects</h2></div></div>
+          <div id="profileProjects" class="profile-list"></div>
+        </div>
+        <div class="card table-card">
+          <div class="table-toolbar"><div class="table-heading"><h2>Scan history</h2></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Domain</th><th>Status</th><th>Created</th><th>Project</th></tr></thead><tbody id="historyBody"></tbody></table></div>
+        </div>
+      </section>
       <!-- HOME -->
       <section id="homePage" class="page active-page">
         <div class="hero">

@@ -15,7 +15,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 r = redis.from_url(REDIS_URL, decode_responses=True)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
 POLL_INTERVAL_SECONDS = int(os.getenv("MONITOR_POLL_INTERVAL_SECONDS", "1800"))  # 30 min default
@@ -84,7 +84,7 @@ def get_known_subdomains(project_id):
         return set()
 
 
-def trigger_drift_scan(project_id, domain, new_subdomains):
+def trigger_drift_scan(project_id, domain, new_subdomains, user_id):
     """Queues a scoped scan on the exact same Redis queue the dashboard
     uses — the worker doesn't know or care whether a scan was started by a
     human or by this monitor."""
@@ -98,13 +98,14 @@ def trigger_drift_scan(project_id, domain, new_subdomains):
             "progress": "0",
             "tools": json.dumps(DRIFT_SCAN_TOOLS),
             "project_id": project_id,
+            "user_id": user_id,
             "trigger": "drift",
             "created_at": datetime.now(timezone.utc).isoformat(),
         },
     )
     r.rpush("ptaas:scans", json.dumps({
         "scan_id": scan_id, "domain": domain,
-        "tools": DRIFT_SCAN_TOOLS, "project_id": project_id,
+        "tools": DRIFT_SCAN_TOOLS, "project_id": project_id, "user_id": user_id,
     }))
     print(f"[monitor] drift detected for {domain}: {len(new_subdomains)} new subdomain(s) "
           f"— queued scan {scan_id}")
@@ -126,7 +127,7 @@ def check_project(project):
     new_subdomains = current - known
 
     if new_subdomains:
-        trigger_drift_scan(project_id, domain, new_subdomains)
+        trigger_drift_scan(project_id, domain, new_subdomains, project["user_id"])
 
     try:
         supabase.table("projects").update({
