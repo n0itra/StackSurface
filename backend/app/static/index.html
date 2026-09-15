@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ReconX — Automated Reconnaissance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">✦</div>
+        <span>ReconX</span>
+      </div>
+      <nav class="nav">
+        <button class="nav-link active" data-page="home">Home</button>
+        <button class="nav-link" data-page="results">Results</button>
+      </nav>
+      <div class="top-actions">
+        <button class="theme-switch" id="themeToggle" title="Toggle dark / light mode">☼ / ☾</button>
+      </div>
+    </header>
+
+    <main>
+      <!-- HOME -->
+      <section id="homePage" class="page active-page">
+        <div class="hero">
+          <div class="glow glow-left"></div>
+          <div class="glow glow-right"></div>
+          <h1>automated recon</h1>
+          <p></p>
+
+          <div class="search-row">
+            <div class="domain-input">
+              <span class="input-icon">◉</span>
+              <input id="domainInput" value="example.com" placeholder="example.com" />
+            </div>
+            <button class="primary-btn" id="startBtn">▶ <span>Start</span></button>
+          </div>
+
+          <div class="project-row" id="projectRow">
+            <select id="projectSelect">
+              <option value="">No project (one-off scan)</option>
+            </select>
+            <button class="ghost-btn" id="newProjectBtn">+ New project</button>
+            <label class="monitor-toggle" id="monitorToggleWrap" style="display:none;">
+              <input type="checkbox" id="monitorToggle" />
+              <span>Monitor continuously</span>
+            </label>
+          </div>
+
+          <div class="card new-project-card" id="newProjectCard" style="display:none;">
+            <input id="newProjectName" placeholder="Client / project name" />
+            <input id="newProjectDomain" placeholder="domain.com" />
+            <label class="monitor-toggle">
+              <input type="checkbox" id="newProjectMonitor" />
+              <span>Monitor continuously (checks for new subdomains every 30 min)</span>
+            </label>
+            <div class="new-project-actions">
+              <button class="secondary-btn" id="cancelProjectBtn">Cancel</button>
+              <button class="primary-btn small" id="saveProjectBtn">Create project</button>
+            </div>
+          </div>
+
+          <button class="configure-toggle" id="configureToggle">
+            <span id="configureArrow">⌄</span>
+            Show Tools &amp; Progress
+          </button>
+        </div>
+
+        <div class="workspace" id="workspace">
+          <div class="card tools-card advanced-panel" id="toolsCard">
+            <div class="card-title-row">
+              <div class="title-wrap">
+                <div class="title-icon">🔧</div>
+                <div>
+                  <h2>Select Tools</h2>
+                  <span>Choose what the recon pipeline should run</span>
+                </div>
+              </div>
+              <label class="select-all">
+                <input type="checkbox" id="selectAll" checked />
+                <span>Select All</span>
+              </label>
+            </div>
+            <div id="toolsList" class="tools-list"></div>
+          </div>
+
+          <div class="right-stack">
+            <div class="card progress-card advanced-panel" id="progressCard">
+              <div class="card-title-row">
+                <div class="title-wrap">
+                  <div class="title-icon">⚙</div>
+                  <div>
+                    <h2>Scan Progress</h2>
+                    <span id="scanStatus">Idle</span>
+                  </div>
+                </div>
+                <div class="status-dot" id="statusDot"></div>
+              </div>
+              <div id="progressList" class="progress-list"></div>
+            </div>
+
+            <div class="card console-card">
+              <div class="console-header">
+                <span>›_ Live Output</span>
+                <button id="clearConsole" class="ghost-btn">Clear</button>
+              </div>
+              <pre id="console">Waiting to start scan...
+</pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RESULTS -->
+      <section id="resultsPage" class="page">
+        <div class="results-header">
+          <div>
+            <button class="back-btn" data-page="home">←</button>
+            <div class="results-title-block">
+              <h1>Scan Results</h1>
+              <p>Domain: <strong id="resultDomain">example.com</strong></p>
+            </div>
+          </div>
+          <div class="results-actions">
+            <span class="scan-time">Scan Time: Sep 7, 2026 · 07:24 PM</span>
+            <div>
+              <button class="secondary-btn" id="downloadBtn">⇩ Download Report</button>
+              <button class="secondary-btn" data-page="home">↻ New Scan</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="result-tabs" id="resultTabs">
+          <button class="result-tab active" data-tab="subdomains">Subdomains <span>147</span></button>
+          <button class="result-tab" data-tab="alive">Alive Hosts <span>89</span></button>
+          <button class="result-tab" data-tab="changes">Changes <span>0</span></button>
+          <button class="result-tab" data-tab="endpoints">Endpoints <span>2,431</span></button>
+          <button class="result-tab" data-tab="secrets">Secrets <span>12</span></button>
+          <button class="result-tab" data-tab="dependencies">Dependencies <span>0</span></button>
+          <button class="result-tab" data-tab="vulnerabilities">Vulnerabilities <span>36</span></button>
+          <button class="result-tab" data-tab="directories">Directories <span>320</span></button>
+        </div>
+
+        <div class="card table-card">
+          <div class="table-toolbar">
+            <div class="table-heading">
+              <div class="title-icon">◎</div>
+              <div>
+                <h2 id="tableTitle">Subdomains</h2>
+                <span id="tableSubtitle">Total: 147 subdomains (after cleaning)</span>
+              </div>
+            </div>
+            <div class="toolbar-actions">
+              <div class="table-search">
+                <span>⌕</span>
+                <input id="tableSearch" placeholder="Search subdomains..." />
+              </div>
+              <button class="secondary-btn" id="exportBtn">⇩ Export</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead id="tableHead"></thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+          <div class="table-footer">
+            <span id="rowSummary">Showing 1 to 15 of 147 results</span>
+            <div class="pagination" id="pagination"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/script.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,294 @@
+ Image ptaas-monitor Building 
+ Image ptaas-backend Building 
+ Image ptaas-worker Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 1.40kB done
+#1 DONE 0.0s
+
+#2 [worker internal] load build definition from Dockerfile
+#2 transferring dockerfile: 5.09kB 0.0s done
+#2 DONE 0.1s
+
+#3 [monitor internal] load build definition from Dockerfile
+#3 transferring dockerfile: 319B 0.0s done
+#3 DONE 0.1s
+
+#4 [backend internal] load build definition from Dockerfile
+#4 transferring dockerfile: 578B 0.0s done
+#4 DONE 0.1s
+
+#5 [monitor internal] load metadata for docker.io/library/python:3.12.7-slim
+#5 DONE 0.1s
+
+#6 [monitor internal] load .dockerignore
+#6 transferring context: 2B done
+#6 DONE 0.0s
+
+#7 [backend internal] load .dockerignore
+#7 transferring context: 2B 0.0s done
+#7 DONE 0.0s
+
+#8 [monitor internal] load build context
+#8 DONE 0.0s
+
+#9 [backend internal] load build context
+#9 DONE 0.0s
+
+#10 [backend 1/6] FROM docker.io/library/python:3.12.7-slim@sha256:60d9996b6a8a3689d36db740b49f4327be3be09a21122bd02fb8895abb38b50d
+#10 resolve docker.io/library/python:3.12.7-slim@sha256:60d9996b6a8a3689d36db740b49f4327be3be09a21122bd02fb8895abb38b50d 0.1s done
+#10 resolve docker.io/library/python:3.12.7-slim@sha256:60d9996b6a8a3689d36db740b49f4327be3be09a21122bd02fb8895abb38b50d 0.1s done
+#10 DONE 0.1s
+
+#8 [monitor internal] load build context
+#8 transferring context: 94B done
+#8 DONE 0.0s
+
+#9 [backend internal] load build context
+#9 transferring context: 244B 0.0s done
+#9 DONE 0.0s
+
+#11 [monitor 5/6] COPY app ./app
+#11 CACHED
+
+#12 [monitor 3/6] COPY requirements.txt .
+#12 CACHED
+
+#13 [monitor 4/6] RUN pip install --no-cache-dir -r requirements.txt
+#13 CACHED
+
+#14 [monitor 2/6] WORKDIR /app
+#14 CACHED
+
+#15 [monitor 6/6] RUN useradd --create-home --shell /usr/sbin/nologin monitor     && chown -R monitor:monitor /app
+#15 CACHED
+
+#16 [backend 3/7] WORKDIR /app
+#16 CACHED
+
+#17 [backend 6/7] COPY app ./app
+#17 CACHED
+
+#18 [backend 4/7] COPY requirements.txt .
+#18 CACHED
+
+#19 [backend 2/7] RUN apt-get update && apt-get install -y --no-install-recommends     curl     && rm -rf /var/lib/apt/lists/*
+#19 CACHED
+
+#20 [backend 5/7] RUN pip install --no-cache-dir -r requirements.txt
+#20 CACHED
+
+#21 [backend 7/7] RUN useradd --create-home --shell /usr/sbin/nologin backend     && chown -R backend:backend /app
+#21 CACHED
+
+#22 [monitor] exporting to image
+#22 exporting layers 0.0s done
+#22 exporting manifest sha256:85ffab311f1da470c6e2435c2e8df33ac51bb5d747893dc611fed91124038303 done
+#22 exporting config sha256:7b505a8cf838e25409a9a1ec1ee78df6c13c790d328852aefa1801f7462aee62 done
+#22 exporting attestation manifest sha256:b78a045e0b3f9f9b4a5706119c8e17513fcacdbf082ecbecd8f0f6674720aa70 0.0s done
+#22 exporting manifest list sha256:a22f62ba5fd8624c92102ec43e45f2f331c3fe9ddd3d25849c6c9f5b95211479
+#22 exporting manifest list sha256:a22f62ba5fd8624c92102ec43e45f2f331c3fe9ddd3d25849c6c9f5b95211479 0.0s done
+#22 naming to docker.io/library/ptaas-monitor:latest done
+#22 unpacking to docker.io/library/ptaas-monitor:latest 0.1s done
+#22 DONE 0.3s
+
+#23 [backend] exporting to image
+#23 exporting layers 0.0s done
+#23 exporting manifest sha256:64e7288796343fab39e3cede47300864195bc4ab65842d9d876ebe21ee74a9db done
+#23 exporting config sha256:487f06d45af599f1ff31e865d9614a1af221723aa43235be363e785ba09bc278 done
+#23 exporting attestation manifest sha256:acba2f4abd78d5dfe49516a00819e66fc175da2d56be3a84355578cfaf8bdf64 0.0s done
+#23 exporting manifest list sha256:fda2ac3ce9b9cac4065844a27132cbeb932f3bfd81586d40d8bf4698f15e7474 0.0s done
+#23 naming to docker.io/library/ptaas-backend:latest done
+#23 unpacking to docker.io/library/ptaas-backend:latest 0.1s done
+#23 DONE 0.4s
+
+#24 [worker internal] load metadata for docker.io/library/golang:1.22-bookworm
+#24 ...
+
+#25 [monitor] resolving provenance for metadata file
+#25 DONE 0.0s
+
+#26 [backend] resolving provenance for metadata file
+#26 DONE 0.0s
+
+#24 [worker internal] load metadata for docker.io/library/golang:1.22-bookworm
+#24 DONE 17.0s
+
+#27 [worker internal] load .dockerignore
+#27 transferring context: 2B done
+#27 DONE 0.0s
+
+#28 [worker internal] load build context
+#28 DONE 0.0s
+
+#10 [worker stage-1  1/24] FROM docker.io/library/python:3.12.7-slim@sha256:60d9996b6a8a3689d36db740b49f4327be3be09a21122bd02fb8895abb38b50d
+#10 resolve docker.io/library/python:3.12.7-slim@sha256:60d9996b6a8a3689d36db740b49f4327be3be09a21122bd02fb8895abb38b50d 0.1s done
+#10 DONE 0.2s
+
+#29 [worker toolbuilder 1/8] FROM docker.io/library/golang:1.22-bookworm@sha256:3d699e4d15d0f8f13c9195c0632a16702b8cbdece2955af1c23b37ae5d55a253
+#29 resolve docker.io/library/golang:1.22-bookworm@sha256:3d699e4d15d0f8f13c9195c0632a16702b8cbdece2955af1c23b37ae5d55a253
+#29 resolve docker.io/library/golang:1.22-bookworm@sha256:3d699e4d15d0f8f13c9195c0632a16702b8cbdece2955af1c23b37ae5d55a253 0.1s done
+#29 DONE 0.1s
+
+#30 [worker stage-1  2/24] RUN apt-get update && apt-get install -y --no-install-recommends     ca-certificates curl procps unzip     && rm -rf /var/lib/apt/lists/*
+#30 CACHED
+
+#31 [worker toolbuilder 2/8] RUN apt-get update && apt-get install -y --no-install-recommends     ca-certificates curl git build-essential     && rm -rf /var/lib/apt/lists/*
+#31 CACHED
+
+#28 [worker internal] load build context
+#28 transferring context: 170B 0.0s done
+#28 DONE 0.0s
+
+#32 [worker toolbuilder 3/8] RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.6.6 &&     go install -v github.com/tomnomnom/assetfinder@latest &&     go install -v github.com/projectdiscovery/httpx/cmd/httpx@v1.6.8 &&     go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.3.7 &&     go install -v github.com/projectdiscovery/katana/cmd/katana@v1.0.5 &&     go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@v1.2.1 &&     go install -v github.com/projectdiscovery/cdncheck/cmd/cdncheck@v1.1.9 &&     go install -v github.com/projectdiscovery/alterx/cmd/alterx@v0.0.6 &&     go install -v github.com/trufflesecurity/trufflehog/v3@v3.82.6 &&     go install -v github.com/d3mondev/puredns/v2@latest
+#32 3.045 go: downloading github.com/projectdiscovery/subfinder/v2 v2.6.6
+#32 4.990 go: downloading github.com/projectdiscovery/fdmax v0.0.4
+#32 4.991 go: downloading github.com/projectdiscovery/gologger v1.1.12
+#32 5.015 go: downloading github.com/hako/durafmt v0.0.0-20210316092057-3a2c319c1acd
+#32 5.031 go: downloading github.com/json-iterator/go v1.1.12
+#32 5.837 go: downloading github.com/pkg/errors v0.9.1
+#32 5.881 go: downloading github.com/projectdiscovery/dnsx v1.2.1
+#32 6.114 go: downloading github.com/projectdiscovery/goflags v0.1.42
+#32 6.117 go: downloading github.com/projectdiscovery/utils v0.0.84
+#32 6.937 go: downloading golang.org/x/exp v0.0.0-20230420155640-133eef4313cb
+#32 6.939 go: downloading gopkg.in/yaml.v3 v3.0.1
+#32 7.319 go: downloading github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd
+#32 7.321 go: downloading github.com/modern-go/reflect2 v1.0.2
+#32 7.573 go: downloading github.com/logrusorgru/aurora v2.0.3+incompatible
+#32 7.764 go: downloading github.com/projectdiscovery/ratelimit v0.0.34
+#32 7.765 go: downloading github.com/rs/xid v1.5.0
+#32 7.922 go: downloading github.com/corpix/uarand v0.2.0
+#32 8.174 go: downloading github.com/miekg/dns v1.1.56
+#32 8.191 go: downloading github.com/projectdiscovery/cdncheck v1.0.9
+#32 8.405 go: downloading github.com/projectdiscovery/retryabledns v1.0.58
+#32 8.727 go: downloading github.com/cnf/structhash v0.0.0-20201127153200-e1b16c1ebc08
+#32 8.770 go: downloading github.com/tidwall/gjson v1.14.4
+#32 8.797 go: downloading github.com/projectdiscovery/blackrock v0.0.1
+#32 8.941 go: downloading github.com/Masterminds/semver/v3 v3.2.1
+#32 9.056 go: downloading github.com/charmbracelet/glamour v0.6.0
+#32 9.060 go: downloading github.com/cheggaaa/pb/v3 v3.1.4
+#32 9.082 go: downloading github.com/google/go-github/v30 v30.1.0
+#32 9.508 go: downloading github.com/minio/selfupdate v0.6.1-0.20230907112617-f11e74f84ca7
+#32 9.638 go: downloading github.com/projectdiscovery/machineid v0.0.0-20240226150047-2e2c51e35983
+#32 9.824 go: downloading golang.org/x/oauth2 v0.11.0
+#32 9.968 go: downloading github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2
+#32 10.25 go: downloading github.com/mholt/archiver/v3 v3.5.1
+#32 10.32 go: downloading gopkg.in/djherbis/times.v1 v1.3.0
+#32 10.32 go: downloading golang.org/x/sys v0.17.0
+#32 10.44 go: downloading github.com/projectdiscovery/chaos-client v0.5.1
+#32 10.97 go: downloading github.com/lib/pq v1.10.9
+#32 10.99 go: downloading github.com/projectdiscovery/retryablehttp-go v1.0.53
+#32 11.23 go: downloading github.com/tomnomnom/linkheader v0.0.0-20180905144013-02ca5825eb80
+#32 11.58 go: downloading go.uber.org/multierr v1.11.0
+#32 11.59 go: downloading github.com/weppos/publicsuffix-go v0.30.1-0.20230422193905-8fecedd899db
+#32 11.60 go: downloading github.com/yl2chen/cidranger v1.0.2
+#32 11.60 go: downloading github.com/microcosm-cc/bluemonday v1.0.25
+#32 11.98 go: downloading github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d
+#32 11.99 go: downloading golang.org/x/net v0.17.0
+#32 12.45 go: downloading github.com/tidwall/match v1.1.1
+#32 12.64 go: downloading github.com/tidwall/pretty v1.2.1
+#32 12.91 go: downloading github.com/VividCortex/ewma v1.2.0
+#32 13.03 go: downloading github.com/fatih/color v1.15.0
+#32 13.33 go: downloading github.com/mattn/go-colorable v0.1.13
+#32 13.44 go: downloading github.com/mattn/go-isatty v0.0.19
+#32 13.54 go: downloading github.com/mattn/go-runewidth v0.0.14
+#32 13.57 go: downloading github.com/muesli/termenv v0.15.1
+#32 13.77 go: downloading github.com/yuin/goldmark v1.5.4
+#32 13.83 go: downloading github.com/yuin/goldmark-emoji v1.0.1
+#32 14.25 go: downloading github.com/shirou/gopsutil/v3 v3.23.7
+#32 14.25 go: downloading github.com/google/go-querystring v1.1.0
+#32 14.27 go: downloading golang.org/x/crypto v0.17.0
+#32 14.27 go: downloading aead.dev/minisign v0.2.0
+#32 15.01 go: downloading github.com/andybalholm/brotli v1.0.6
+#32 15.03 go: downloading github.com/dsnet/compress v0.0.2-0.20210315054119-f66993602bf5
+#32 15.04 go: downloading github.com/golang/snappy v0.0.4
+#32 16.61 go: downloading github.com/klauspost/compress v1.16.7
+#32 19.44 go: downloading github.com/klauspost/pgzip v1.2.5
+#32 20.05 go: downloading github.com/nwaples/rardecode v1.1.3
+#32 20.54 go: downloading github.com/pierrec/lz4/v4 v4.1.2
+#32 139.9 go: downloading github.com/ulikunitz/xz v0.5.11
+#32 139.9 go: downloading github.com/Mzack9999/go-http-digest-auth-client v0.6.1-0.20220414142836-eb8883508809
+#32 139.9 go: downloading github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8
+#32 139.9 go: downloading github.com/projectdiscovery/fastdialer v0.0.64
+#32 142.0 go: downloading github.com/aymerick/douceur v0.2.0
+#32 142.0 go: downloading github.com/alecthomas/chroma v0.10.0
+#32 143.4 go: downloading github.com/muesli/reflow v0.3.0
+#32 144.0 go: downloading github.com/olekukonko/tablewriter v0.0.5
+#32 144.0 go: downloading github.com/aymanbagabas/go-osc52/v2 v2.0.1
+#32 144.0 go: downloading github.com/lucasb-eyer/go-colorful v1.2.0
+#32 144.0 go: downloading github.com/rivo/uniseg v0.4.4
+#32 144.6 go: downloading github.com/tklauser/go-sysconf v0.3.12
+#32 144.6 go: downloading golang.org/x/text v0.14.0
+#32 145.7 go: downloading github.com/Mzack9999/gcache v0.0.0-20230410081825-519e28eab057
+#32 146.2 go: downloading github.com/dimchansky/utfbom v1.1.1
+#32 158.0 go: downloading github.com/docker/go-units v0.5.0
+#32 162.0 go: downloading github.com/projectdiscovery/hmap v0.0.41
+#32 162.4 go: downloading github.com/projectdiscovery/networkpolicy v0.0.8
+#32 162.5 go: downloading github.com/refraction-networking/utls v1.5.4
+#32 162.9 go: downloading github.com/zmap/zcrypto v0.0.0-20230422215203-9a665e1e9968
+#32 164.8 go: downloading github.com/gorilla/css v1.0.0
+#32 164.9 go: downloading github.com/dlclark/regexp2 v1.8.1
+#32 165.3 go: downloading github.com/tklauser/numcpus v0.6.1
+#32 165.7 go: downloading github.com/cloudflare/circl v1.3.7
+#32 174.2 go: downloading github.com/gaukas/godicttls v0.0.4
+#32 174.2 go: downloading golang.org/x/sync v0.6.0
+#32 174.2 go: downloading github.com/quic-go/quic-go v0.37.7
+#32 174.2 go: downloading github.com/akrylysov/pogreb v0.10.1
+#32 174.6 go: downloading github.com/syndtr/goleveldb v1.0.0
+#32 175.2 go: downloading github.com/tidwall/buntdb v1.3.0
+#32 175.2 go: downloading go.etcd.io/bbolt v1.3.7
+#32 175.2 go: downloading github.com/zmap/rc2 v0.0.0-20190804163417-abaa70531248
+#32 175.5 go: downloading github.com/tidwall/rtred v0.1.2
+#32 175.5 go: downloading github.com/tidwall/btree v1.6.0
+#32 175.5 go: downloading github.com/tidwall/grect v0.1.4
+#32 175.9 go: downloading github.com/tidwall/tinyqueue v0.1.1
+#32 179.9 pkg/mod/github.com/mholt/archiver/v3@v3.5.1/gz.go:8:2: github.com/klauspost/compress@v1.16.7: read "https://proxy.golang.org/github.com/klauspost/compress/@v/v1.16.7.zip": read tcp 172.17.0.2:34924->142.251.36.219:443: read: connection reset by peer
+#32 179.9 pkg/mod/github.com/mholt/archiver/v3@v3.5.1/zip.go:16:2: github.com/klauspost/compress@v1.16.7: read "https://proxy.golang.org/github.com/klauspost/compress/@v/v1.16.7.zip": read tcp 172.17.0.2:34924->142.251.36.219:443: read: connection reset by peer
+#32 179.9 pkg/mod/github.com/mholt/archiver/v3@v3.5.1/tarzst.go:8:2: github.com/klauspost/compress@v1.16.7: read "https://proxy.golang.org/github.com/klauspost/compress/@v/v1.16.7.zip": read tcp 172.17.0.2:34924->142.251.36.219:443: read: connection reset by peer
+#32 179.9 pkg/mod/github.com/klauspost/pgzip@v1.2.5/gunzip.go:26:2: github.com/klauspost/compress@v1.16.7: read "https://proxy.golang.org/github.com/klauspost/compress/@v/v1.16.7.zip": read tcp 172.17.0.2:34924->142.251.36.219:443: read: connection reset by peer
+#32 179.9 pkg/mod/github.com/mholt/archiver/v3@v3.5.1/lz4.go:8:2: github.com/pierrec/lz4/v4@v4.1.2: read "https://proxy.golang.org/github.com/pierrec/lz4/v4/@v/v4.1.2.zip": read tcp 172.17.0.2:34924->142.251.36.219:443: read: connection reset by peer
+#32 ERROR: process "/bin/sh -c go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.6.6 &&     go install -v github.com/tomnomnom/assetfinder@latest &&     go install -v github.com/projectdiscovery/httpx/cmd/httpx@v1.6.8 &&     go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.3.7 &&     go install -v github.com/projectdiscovery/katana/cmd/katana@v1.0.5 &&     go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@v1.2.1 &&     go install -v github.com/projectdiscovery/cdncheck/cmd/cdncheck@v1.1.9 &&     go install -v github.com/projectdiscovery/alterx/cmd/alterx@v0.0.6 &&     go install -v github.com/trufflesecurity/trufflehog/v3@v3.82.6 &&     go install -v github.com/d3mondev/puredns/v2@latest" did not complete successfully: exit code: 1
+------
+ > [worker toolbuilder 3/8] RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.6.6 &&     go install -v github.com/tomnomnom/assetfinder@latest &&     go install -v github.com/projectdiscovery/httpx/cmd/httpx@v1.6.8 &&     go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.3.7 &&     go install -v github.com/projectdiscovery/katana/cmd/katana@v1.0.5 &&     go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@v1.2.1 &&     go install -v github.com/projectdiscovery/cdncheck/cmd/cdncheck@v1.1.9 &&     go install -v github.com/projectdiscovery/alterx/cmd/alterx@v0.0.6 &&     go install -v github.com/trufflesecurity/trufflehog/v3@v3.82.6 &&     go install -v github.com/d3mondev/puredns/v2@latest:
+175.2 go: downloading github.com/zmap/rc2 v0.0.0-20190804163417-abaa70531248
+175.5 go: downloading github.com/tidwall/rtred v0.1.2
+175.5 go: downloading github.com/tidwall/btree v1.6.0
+175.5 go: downloading github.com/tidwall/grect v0.1.4
+175.9 go: downloading github.com/tidwall/tinyqueue v0.1.1
+179.9 pkg/mod/github.com/mholt/archiver/v3@v3.5.1/gz.go:8:2: github.com/klauspost/compress@v1.16.7: read "https://proxy.golang.org/github.com/klauspost/compress/@v/v1.16.7.zip": read tcp 172.17.0.2:34924->142.251.36.219:443: read: connection reset by peer
+179.9 pkg/mod/github.com/mholt/archiver/v3@v3.5.1/zip.go:16:2: github.com/klauspost/compress@v1.16.7: read "https://proxy.golang.org/github.com/klauspost/compress/@v/v1.16.7.zip": read tcp 172.17.0.2:34924->142.251.36.219:443: read: connection reset by peer
+179.9 pkg/mod/github.com/mholt/archiver/v3@v3.5.1/tarzst.go:8:2: github.com/klauspost/compress@v1.16.7: read "https://proxy.golang.org/github.com/klauspost/compress/@v/v1.16.7.zip": read tcp 172.17.0.2:34924->142.251.36.219:443: read: connection reset by peer
+179.9 pkg/mod/github.com/klauspost/pgzip@v1.2.5/gunzip.go:26:2: github.com/klauspost/compress@v1.16.7: read "https://proxy.golang.org/github.com/klauspost/compress/@v/v1.16.7.zip": read tcp 172.17.0.2:34924->142.251.36.219:443: read: connection reset by peer
+179.9 pkg/mod/github.com/mholt/archiver/v3@v3.5.1/lz4.go:8:2: github.com/pierrec/lz4/v4@v4.1.2: read "https://proxy.golang.org/github.com/pierrec/lz4/v4/@v/v4.1.2.zip": read tcp 172.17.0.2:34924->142.251.36.219:443: read: connection reset by peer
+------
+Dockerfile:9
+
+--------------------
+
+   8 |         && rm -rf /var/lib/apt/lists/*
+
+   9 | >>> RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.6.6 && \
+
+  10 | >>>     go install -v github.com/tomnomnom/assetfinder@latest && \
+
+  11 | >>>     go install -v github.com/projectdiscovery/httpx/cmd/httpx@v1.6.8 && \
+
+  12 | >>>     go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.3.7 && \
+
+  13 | >>>     go install -v github.com/projectdiscovery/katana/cmd/katana@v1.0.5 && \
+
+  14 | >>>     go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@v1.2.1 && \
+
+  15 | >>>     go install -v github.com/projectdiscovery/cdncheck/cmd/cdncheck@v1.1.9 && \
+
+  16 | >>>     go install -v github.com/projectdiscovery/alterx/cmd/alterx@v0.0.6 && \
+
+  17 | >>>     go install -v github.com/trufflesecurity/trufflehog/v3@v3.82.6 && \
+
+  18 | >>>     go install -v github.com/d3mondev/puredns/v2@latest
+
+  19 |     
+
+--------------------
+
+target worker: failed to solve: process "/bin/sh -c go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.6.6 &&     go install -v github.com/tomnomnom/assetfinder@latest &&     go install -v github.com/projectdiscovery/httpx/cmd/httpx@v1.6.8 &&     go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.3.7 &&     go install -v github.com/projectdiscovery/katana/cmd/katana@v1.0.5 &&     go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@v1.2.1 &&     go install -v github.com/projectdiscovery/cdncheck/cmd/cdncheck@v1.1.9 &&     go install -v github.com/projectdiscovery/alterx/cmd/alterx@v0.0.6 &&     go install -v github.com/trufflesecurity/trufflehog/v3@v3.82.6 &&     go install -v github.com/d3mondev/puredns/v2@latest" did not complete successfully: exit code: 1
+

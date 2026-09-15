@@ -1,0 +1,65 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      SUPABASE_URL: ${SUPABASE_URL:?SUPABASE_URL must be set in .env}
+      SUPABASE_KEY: ${SUPABASE_KEY:?SUPABASE_KEY must be set in .env}
+      API_KEY: ${API_KEY:?API_KEY must be set in .env}
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+
+  worker:
+    build: ./worker
+    command: python -u app/worker.py
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_KEY: ${SUPABASE_KEY}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      SECURITYTRAILS_API_KEY: ${SECURITYTRAILS_API_KEY:-}
+      VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
+      SHODAN_API_KEY: ${SHODAN_API_KEY:-}
+      CENSYS_API_ID: ${CENSYS_API_ID:-}
+      CENSYS_API_SECRET: ${CENSYS_API_SECRET:-}
+      NETLAS_API_KEY: ${NETLAS_API_KEY:-}
+      C99_API_KEY: ${C99_API_KEY:-}
+    volumes:
+      - scan_data:/scans
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'app.worker' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  monitor:
+    build: ./monitor
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_KEY: ${SUPABASE_KEY}
+      MONITOR_POLL_INTERVAL_SECONDS: ${MONITOR_POLL_INTERVAL_SECONDS:-1800}
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  scan_data:
