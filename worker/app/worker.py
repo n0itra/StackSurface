@@ -693,22 +693,53 @@ def run_feroxbuster(scan_id, live_hosts, errors, max_hosts=10):
     return directories
 
 
-def persist_to_supabase(scan_id, domain, tools, status, user_id=None, **fields):
+def checkpoint_scan(scan_id, domain, tools, status, user_id=None, project_id=None, **fields):
+    """Persist a partial scan without replacing fields written by earlier stages."""
     if not supabase:
         return
-    row = {
-        "scan_id": scan_id,
-        "user_id": user_id,
-        "domain": domain,
-        "status": status,
-        "tools": list(tools) if tools else [],
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-        **fields,
-    }
+    # Progress is intentionally kept in Redis: scans has no progress column,
+    # and Redis remains the live frontend state store.
+    fields.pop("progress", None)
+    payload = {"status": status, **fields}
+    # Do not send null ownership values: an incremental update must never
+    # erase identifiers that were written when the scan was created.
+    if user_id is not None:
+        payload["user_id"] = user_id
+    if project_id is not None:
+        payload["project_id"] = project_id
     try:
-        supabase.table("scans").upsert(row, on_conflict="scan_id").execute()
+        result = (
+            supabase.table("scans")
+            .update(payload)
+            .eq("scan_id", scan_id)
+            .select("scan_id")
+            .execute()
+        )
+        if not result.data:
+            # This also supports workers starting before the API-created row,
+            # while retaining the same non-null ownership safeguards.
+            row = {
+                "scan_id": scan_id,
+                "domain": domain,
+                "tools": list(tools) if tools else [],
+                **payload,
+            }
+            supabase.table("scans").upsert(row, on_conflict="scan_id").execute()
     except Exception:
         print(f"[supabase] failed to persist scan {scan_id}: {traceback.format_exc(limit=3)}")
+
+
+def persist_to_supabase(scan_id, domain, tools, status, user_id=None, project_id=None, **fields):
+    checkpoint_scan(
+        scan_id,
+        domain,
+        tools,
+        status,
+        user_id=user_id,
+        project_id=project_id,
+        completed_at=datetime.now(timezone.utc).isoformat(),
+        **fields,
+    )
 
 
 def diff_asset_history(project_id, current_subdomains, errors):
@@ -795,11 +826,15 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
     tools = set(tools or [])
 
     update(scan_id, status="running", progress="5")
+    checkpoint_scan(scan_id, domain, tools, "running", user_id=user_id, project_id=project_id, progress=5, errors=errors)
 
     if not is_safe_target(domain):
         msg = f"refused: {domain} resolves to a disallowed address"
         update(scan_id, status="failed", progress="100", errors=json.dumps([msg]))
-        persist_to_supabase(scan_id, domain, tools, "failed", user_id=user_id, errors=[msg])
+        checkpoint_scan(
+            scan_id, domain, tools, "failed", user_id=user_id, project_id=project_id,
+            progress=100, errors=[msg],
+        )
         return
 
     blocked = sorted((tools & BLOCKED_TOOLS))
@@ -816,18 +851,30 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
         or x == domain
     )
     update(scan_id, subdomains=json.dumps(subdomains), progress="18")
+    checkpoint_scan(
+        scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
+        subdomains=subdomains, progress=18, errors=errors,
+    )
 
     if "permutations" in tools:
         new_hosts = run_permutations(scan_id, domain, subdomains, errors)
         if new_hosts:
             subdomains = sorted(set(subdomains) | new_hosts)
     update(scan_id, subdomains=json.dumps(subdomains), progress="25")
+    checkpoint_scan(
+        scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
+        subdomains=subdomains, progress=25, errors=errors,
+    )
 
     added_assets, removed_assets = diff_asset_history(project_id, subdomains, errors)
     update(
         scan_id,
         added_assets=json.dumps(added_assets),
         removed_assets=json.dumps(removed_assets),
+    )
+    checkpoint_scan(
+        scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
+        added_assets=added_assets, removed_assets=removed_assets, progress=25, errors=errors,
     )
 
     resolved_map = {}
@@ -837,6 +884,10 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
     else:
         resolved_map = {s: [] for s in subdomains}
     update(scan_id, unresolved=json.dumps(unresolved), progress="30")
+    checkpoint_scan(
+        scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
+        unresolved=unresolved, progress=30, errors=errors,
+    )
 
     cdn_by_ip = {}
     if "cdncheck" in tools:
@@ -849,25 +900,45 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
         unique_ips = sorted({ip for ips in resolved_map.values() for ip in ips} - set(cdn_by_ip))
         port_map = shodan_host_ports(unique_ips, errors)
     update(scan_id, progress="35")
+    checkpoint_scan(
+        scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
+        progress=35, errors=errors,
+    )
 
     live_hosts = []
     if "httpx" in tools:
         live_hosts = run_httpx(scan_id, resolved_map, port_map, errors)
     update(scan_id, alive=json.dumps(live_hosts), progress="40")
+    checkpoint_scan(
+        scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
+        alive=live_hosts, progress=40, errors=errors,
+    )
 
     vulnerabilities = []
     endpoints = []
     if "katana" in tools:
         endpoints = run_katana(scan_id, live_hosts, errors)
     update(scan_id, endpoints=json.dumps(endpoints), progress="60")
+    checkpoint_scan(
+        scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
+        endpoints=endpoints, progress=60, errors=errors,
+    )
 
     if "nuclei" in tools:
         vulnerabilities.extend(run_nuclei(scan_id, live_hosts, errors))
     update(scan_id, vulnerabilities=json.dumps(vulnerabilities), progress="75")
+    checkpoint_scan(
+        scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
+        vulnerabilities=vulnerabilities, progress=75, errors=errors,
+    )
 
     if "arjun" in tools:
         endpoints.extend(run_arjun(endpoints, domain, errors))
         update(scan_id, endpoints=json.dumps(endpoints))
+        checkpoint_scan(
+            scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
+            endpoints=endpoints, errors=errors,
+        )
 
     secrets = []
     new_js_deps = []
@@ -893,11 +964,20 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
         js_cve_findings=json.dumps(js_cve_findings),
         progress="88",
     )
+    checkpoint_scan(
+        scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
+        secrets=secrets, new_js_dependencies=new_js_deps,
+        js_cve_findings=js_cve_findings, progress=88, errors=errors,
+    )
 
     directories = []
     if "feroxbuster" in tools:
         directories = run_feroxbuster(scan_id, live_hosts, errors)
     update(scan_id, directories=json.dumps(directories), progress="97")
+    checkpoint_scan(
+        scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
+        directories=directories, progress=97, errors=errors,
+    )
 
     update(
         scan_id,
@@ -938,7 +1018,10 @@ def main():
         except Exception:
             tb = traceback.format_exc(limit=5)
             update(scan_id, status="failed", errors=json.dumps([tb]))
-            persist_to_supabase(scan_id, domain, tools, "failed", user_id=user_id, errors=[tb])
+            checkpoint_scan(
+                scan_id, domain, tools, "failed", user_id=user_id, project_id=project_id,
+                progress=100, errors=[tb],
+            )
 
 
 if __name__ == "__main__":

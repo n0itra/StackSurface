@@ -181,6 +181,8 @@ const selectAll = document.getElementById("selectAll");
 let currentStep = -1;
 let running = false;
 let timers = [];
+let activeScan = null;
+let activeScanDomain = "example.com";
 
 let accessToken = localStorage.getItem("reconx-access-token");
 let refreshToken = localStorage.getItem("reconx-refresh-token");
@@ -323,6 +325,8 @@ async function runScan()  {
   const selectedSet = new Set(selected);
   const projectId = document.getElementById("projectSelect").value || null;
   running = true;
+  activeScanDomain = domain;
+  activeScan = {};
   startBtn.disabled = true;
   startBtn.querySelector("span").textContent = "Running...";
   statusDot.classList.add("running");
@@ -355,6 +359,8 @@ async function runScan()  {
     }
     const data = await res.json();
     scanId = data.scan_id;
+    activeScan = {scan_id: scanId, status: "running"};
+    updateResultSnapshot(activeScan, domain);
     appendLog(`Scan queued (${scanId}).`);
   } catch (e) {
     appendLog(`Network error contacting backend. Make sure the server is running.`);
@@ -392,16 +398,15 @@ async function runScan()  {
       lastProgress = progress;
     }
 
+    // Keep the result view useful while the backend is still producing data.
+    updateResultSnapshot(scan, domain);
+
     if (scan.status === "completed" || scan.status === "failed") {
       stepMap.forEach(([key], idx) => {
         if (!selectedSet.has(key)) return;
         setProgress(idx, "done", scan.status === "failed" ? "Finished with errors" : "Completed", "DONE");
       });
       (scan.errors || []).forEach(e => appendLog(`Note: ${e}`));
-
-      datasets = buildDatasets(scan);
-      refreshResultTabs(scan, domain);
-      renderTable(document.querySelector(".result-tab.active")?.dataset.tab || "subdomains");
 
       statusDot.classList.remove("running");
       statusDot.classList.add("done");
@@ -434,6 +439,14 @@ function goTo(page) {
   document.querySelectorAll(".nav-link").forEach(n => n.classList.toggle("active", n.dataset.page === page));
 }
 
+function updateResultSnapshot(scan, domain) {
+  activeScan = scan;
+  activeScanDomain = domain;
+  datasets = buildDatasets(scan);
+  refreshResultTabs(scan, domain);
+  renderTable(document.querySelector(".result-tab.active")?.dataset.tab || "subdomains");
+}
+
 function refreshResultTabs(scan, domain) {
   document.querySelectorAll(".result-tab").forEach(tab => {
     const key = tab.dataset.tab;
@@ -442,8 +455,15 @@ function refreshResultTabs(scan, domain) {
     if (span) span.textContent = total.toLocaleString();
   });
   document.getElementById("resultDomain").textContent = domain;
-  document.querySelector(".scan-time").textContent =
-    "Scan Time: " + new Date().toLocaleString([], {dateStyle:"medium", timeStyle:"short"});
+  const status = document.getElementById("resultScanStatus");
+  const isTerminal = scan.status === "completed" || scan.status === "failed";
+  status.className = `result-scan-status ${scan.status === "failed" ? "failed" : isTerminal ? "completed" : "running"}`;
+  status.textContent = scan.status === "failed"
+    ? "Failed — partial results"
+    : isTerminal ? "Completed" : "Running — partial results";
+  document.querySelector(".scan-time").textContent = isTerminal
+    ? "Scan Time: " + new Date().toLocaleString([], {dateStyle:"medium", timeStyle:"short"})
+    : "Live update — scan in progress";
 }
 
 function escapeHtml(value) {
