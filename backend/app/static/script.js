@@ -475,14 +475,90 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function renderTable(tabKey, filter=""){
+const tableState = {
+  search: "",
+  page: 1,
+  pageSize: 15,
+  sort: {column: null, direction: "asc"},
+  statuses: new Set(),
+};
+
+function getProcessedRows(tabKey) {
+  const data = datasets[tabKey];
+  let rows = data.rows.slice();
+  if (tabKey === "alive" && tableState.statuses.size) {
+    rows = rows.filter(row => tableState.statuses.has(String(row[2])));
+  }
+  if (tableState.search) {
+    const query = tableState.search.toLowerCase();
+    rows = rows.filter(row => row.join(" ").toLowerCase().includes(query));
+  }
+  if (tabKey === "alive" && tableState.sort.column !== null) {
+    const index = tableState.sort.column;
+    const direction = tableState.sort.direction === "asc" ? 1 : -1;
+    rows.sort((a, b) => {
+      const left = String(a[index] ?? "");
+      const right = String(b[index] ?? "");
+      if (index === 2) {
+        const leftNumber = Number(left);
+        const rightNumber = Number(right);
+        const leftValid = left !== "" && Number.isFinite(leftNumber);
+        const rightValid = right !== "" && Number.isFinite(rightNumber);
+        if (leftValid !== rightValid) return leftValid ? -1 : 1;
+        if (leftValid && leftNumber !== rightNumber) return (leftNumber - rightNumber) * direction;
+      } else {
+        const comparison = left.localeCompare(right, undefined, {numeric: true, sensitivity: "base"});
+        if (comparison) return comparison * direction;
+      }
+      return 0;
+    });
+  }
+  return rows;
+}
+
+function renderStatusFilter(data) {
+  const filter = document.getElementById("statusFilter");
+  if (!filter) return;
+  const isAlive = data.title === "Alive Hosts";
+  filter.hidden = !isAlive;
+  if (!isAlive) return;
+  const statuses = [...new Set(data.rows.map(row => String(row[2])))].sort((a, b) => {
+    const an = Number(a), bn = Number(b);
+    if (Number.isFinite(an) && Number.isFinite(bn)) return an - bn;
+    if (Number.isFinite(an)) return -1;
+    if (Number.isFinite(bn)) return 1;
+    return a.localeCompare(b);
+  });
+  tableState.statuses.forEach(status => {
+    if (!statuses.includes(status)) tableState.statuses.delete(status);
+  });
+  const menu = document.getElementById("statusFilterMenu");
+  menu.innerHTML = `<label class="status-filter-option"><input type="checkbox" data-status-all ${
+    tableState.statuses.size === 0 ? "checked" : ""
+  }>All statuses</label>${statuses.map(status => `<label class="status-filter-option"><input type="checkbox" data-status="${escapeHtml(status)}" ${
+    tableState.statuses.has(status) ? "checked" : ""
+  }>${escapeHtml(status)}</label>`).join("")}<button type="button" class="ghost-btn" data-status-reset>Clear/reset</button>`;
+  document.getElementById("statusFilterToggle").textContent = tableState.statuses.size
+    ? `Statuses (${tableState.statuses.size}) ▾` : "Statuses ▾";
+}
+
+function renderTable(tabKey){
   const data = datasets[tabKey];
   document.getElementById("tableTitle").textContent = data.title;
-  document.getElementById("tableSubtitle").textContent = data.subtitle;
+  renderStatusFilter(data);
   document.getElementById("tableSearch").placeholder = data.search;
-
-  document.getElementById("tableHead").innerHTML = `<tr>${data.columns.map(c=>`<th>${escapeHtml(c)}</th>`).join("")}</tr>`;
-  const rows = data.rows.filter(r => r.join(" ").toLowerCase().includes(filter.toLowerCase()));
+  const sortable = tabKey === "alive";
+  document.getElementById("tableHead").innerHTML = `<tr>${data.columns.map((column, index) => {
+    if (!sortable || index === 0) return `<th>${escapeHtml(column)}</th>`;
+    const active = tableState.sort.column === index;
+    const ariaSort = active ? (tableState.sort.direction === "asc" ? "ascending" : "descending") : "none";
+    return `<th class="sortable" aria-sort="${ariaSort}"><button type="button" data-sort-column="${index}">${escapeHtml(column)}</button></th>`;
+  }).join("")}</tr>`;
+  const filteredRows = getProcessedRows(tabKey);
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / tableState.pageSize));
+  tableState.page = Math.min(tableState.page, pageCount);
+  const start = (tableState.page - 1) * tableState.pageSize;
+  const rows = filteredRows.slice(start, start + tableState.pageSize);
   document.getElementById("tableBody").innerHTML = rows.map(row => {
     return `<tr>${row.map((cell,i)=>{
       const safeCell = escapeHtml(cell);
@@ -498,9 +574,14 @@ function renderTable(tabKey, filter=""){
       return `<td>${safeCell}</td>`;
     }).join("")}</tr>`;
   }).join("");
-  document.getElementById("rowSummary").textContent = `Showing 1 to ${rows.length} of ${data.total} results`;
-  document.getElementById("pagination").innerHTML = [1,2,3,4,5,"…",10].map((n,i)=>
-    `<button class="page-btn ${i===0?"active":""}">${n}</button>`).join("");
+  const first = filteredRows.length ? start + 1 : 0;
+  const last = Math.min(start + rows.length, filteredRows.length);
+  document.getElementById("rowSummary").textContent = `Showing ${first} to ${last} of ${filteredRows.length} results`;
+  document.getElementById("tableSubtitle").textContent = tabKey === "alive"
+    ? `${filteredRows.length} of ${data.total} responsive hosts discovered`
+    : data.subtitle;
+  document.getElementById("pagination").innerHTML = Array.from({length: pageCount}, (_, i) => i + 1).map(page =>
+    `<button type="button" class="page-btn ${page === tableState.page ? "active" : ""}" data-page="${page}">${page}</button>`).join("");
 }
 
 renderTools();
@@ -638,8 +719,9 @@ document.getElementById("clearConsole").addEventListener("click", ()=>{
 });
 
 document.getElementById("tableSearch").addEventListener("input", e=>{
-  const active = document.querySelector(".result-tab.active").dataset.tab;
-  renderTable(active,e.target.value);
+  tableState.search = e.target.value.trim();
+  tableState.page = 1;
+  renderTable(document.querySelector(".result-tab.active").dataset.tab);
 });
 
 document.querySelectorAll(".result-tab").forEach(tab => {
@@ -647,14 +729,73 @@ document.querySelectorAll(".result-tab").forEach(tab => {
     document.querySelectorAll(".result-tab").forEach(t=>t.classList.remove("active"));
     tab.classList.add("active");
     document.getElementById("tableSearch").value = "";
+    tableState.search = "";
+    tableState.page = 1;
+    tableState.sort = {column: null, direction: "asc"};
+    tableState.statuses.clear();
+    document.getElementById("statusFilterMenu").hidden = true;
+    document.getElementById("statusFilterToggle").setAttribute("aria-expanded", "false");
     renderTable(tab.dataset.tab);
   });
+});
+
+document.getElementById("tableHead").addEventListener("click", event => {
+  const button = event.target.closest("[data-sort-column]");
+  if (!button) return;
+  const column = Number(button.dataset.sortColumn);
+  if (tableState.sort.column === column) {
+    tableState.sort.direction = tableState.sort.direction === "asc" ? "desc" : "asc";
+  } else {
+    tableState.sort = {column, direction: "asc"};
+  }
+  tableState.page = 1;
+  renderTable("alive");
+});
+
+document.getElementById("pagination").addEventListener("click", event => {
+  const button = event.target.closest("[data-page]");
+  if (!button) return;
+  tableState.page = Number(button.dataset.page);
+  renderTable(document.querySelector(".result-tab.active").dataset.tab);
+});
+
+document.getElementById("statusFilterToggle").addEventListener("click", () => {
+  const menu = document.getElementById("statusFilterMenu");
+  const open = menu.hidden !== true;
+  menu.hidden = open;
+  document.getElementById("statusFilterToggle").setAttribute("aria-expanded", String(!open));
+});
+document.getElementById("statusFilterMenu").addEventListener("change", event => {
+  if (!event.target.matches("input")) return;
+  if (event.target.hasAttribute("data-status-all")) {
+    tableState.statuses.clear();
+  } else {
+    const status = event.target.dataset.status;
+    if (event.target.checked) tableState.statuses.add(status);
+    else tableState.statuses.delete(status);
+  }
+  tableState.page = 1;
+  renderTable("alive");
+  document.getElementById("statusFilterMenu").hidden = false;
+});
+document.getElementById("statusFilterMenu").addEventListener("click", event => {
+  if (!event.target.matches("[data-status-reset]")) return;
+  tableState.statuses.clear();
+  tableState.page = 1;
+  renderTable("alive");
+});
+document.addEventListener("click", event => {
+  const filter = document.getElementById("statusFilter");
+  if (filter && !filter.hidden && !filter.contains(event.target)) {
+    document.getElementById("statusFilterMenu").hidden = true;
+    document.getElementById("statusFilterToggle").setAttribute("aria-expanded", "false");
+  }
 });
 
 document.getElementById("exportBtn").addEventListener("click", ()=>{
   const active = document.querySelector(".result-tab.active").dataset.tab;
   const data = datasets[active];
-  const csv = [data.columns.join(","), ...data.rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(","))].join("\n");
+  const csv = [data.columns.join(","), ...getProcessedRows(active).map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(","))].join("\n");
   const blob = new Blob([csv], {type:"text/csv"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -667,7 +808,8 @@ document.getElementById("downloadBtn").addEventListener("click", ()=>{
   const domain = domainInput.value.trim() || "example.com";
   const activeTab = document.querySelector(".result-tab.active")?.dataset.tab || "subdomains";
   const data = datasets[activeTab];
-  const reportHtml = `<!doctype html><html><head><meta charset="utf-8"><title>StackSurface Report</title><style>body{font-family:Arial,sans-serif;color:#17283a;padding:36px}h1{margin:0 0 8px;font-size:28px}.meta{color:#60758a;margin-bottom:28px}h2{font-size:18px;margin-top:28px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #d6e0e8;padding:9px;text-align:left;font-size:11px}th{background:#eef4f8}.footer{margin-top:28px;color:#71869a;font-size:10px}</style></head><body><h1>StackSurface Security Report</h1><div class="meta">Automated Recon • ${domain} • ${new Date().toLocaleString()}</div><h2>${data.title}</h2><p>${data.subtitle}</p><table><thead><tr>${data.columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${data.rows.map(r=>`<tr>${r.map(v=>`<td>${String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")}</td>`).join("")}</tr>`).join("")}</tbody></table><div class="footer">Generated by StackSurface.</div></body></html>`;
+  const reportRows = getProcessedRows(activeTab);
+  const reportHtml = `<!doctype html><html><head><meta charset="utf-8"><title>StackSurface Report</title><style>body{font-family:Arial,sans-serif;color:#17283a;padding:36px}h1{margin:0 0 8px;font-size:28px}.meta{color:#60758a;margin-bottom:28px}h2{font-size:18px;margin-top:28px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #d6e0e8;padding:9px;text-align:left;font-size:11px}th{background:#eef4f8}.footer{margin-top:28px;color:#71869a;font-size:10px}</style></head><body><h1>StackSurface Security Report</h1><div class="meta">Automated Recon • ${domain} • ${new Date().toLocaleString()}</div><h2>${data.title}</h2><p>${data.subtitle}</p><table><thead><tr>${data.columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${reportRows.map(r=>`<tr>${r.map(v=>`<td>${String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")}</td>`).join("")}</tr>`).join("")}</tbody></table><div class="footer">Generated by StackSurface.</div></body></html>`;
   const reportWindow = window.open("", "_blank");
   if (!reportWindow) { alert("Please allow pop-ups to generate the PDF report."); return; }
   reportWindow.document.open(); reportWindow.document.write(reportHtml); reportWindow.document.close();
