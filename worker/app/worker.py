@@ -711,8 +711,8 @@ def checkpoint_scan(scan_id, domain, tools, status, user_id=None, project_id=Non
         result = (
             supabase.table("scans")
             .update(payload)
-            .eq("scan_id", scan_id)
             .select("scan_id")
+            .eq("scan_id", scan_id)
             .execute()
         )
         if not result.data:
