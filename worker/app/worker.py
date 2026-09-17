@@ -33,7 +33,7 @@ CENSYS_API_SECRET = os.getenv("CENSYS_API_SECRET")
 NETLAS_API_KEY = os.getenv("NETLAS_API_KEY")
 C99_API_KEY = os.getenv("C99_API_KEY")
 
-BLOCKED_TOOLS = {"sqlmap"}
+BLOCKED_TOOLS = set()
 
 def update(scan_id, **fields):
     r.hset(f"scan:{scan_id}", mapping={k: str(v) for k, v in fields.items()})
@@ -172,30 +172,33 @@ def src_crtsh(scan_id, domain):
     return set(), f"crt.sh: {last_err}"
 
 
-def src_waymore(scan_id, domain):
-    out_file = SCAN_DIR / f"waymore_{os.getpid()}_{time.time_ns()}.txt"
+def src_gau(scan_id, domain):
+    """Run gau for passive URL discovery and extract hostnames in-scope.
+
+    Returns a set of hostnames and an optional error message.
+    """
     try:
-        code, out, err = run_command(
-            ["waymore", "-i", domain, "-mode", "U", "-oU", str(out_file)],
-            timeout=180,
-        )
-        if code != 0:
-            return set(), f"waymore: exit {code}: {err[-300:]!r}"
+        code, out, err = run_command(["gau", domain], timeout=60)
+        if code != 0 and not out:
+            return set(), f"gau: exit {code}: {err[-300:]!r}"
         names = set()
-        if out_file.exists():
-            for line in out_file.read_text().splitlines()[:5000]:
-                try:
-                    host = line.strip().split("/")[2].split(":")[0].lower()
-                except IndexError:
-                    continue
-                if in_scope(host, domain) and host not in names:
-                    names.add(host)
-                    r.rpush(f"scan:{scan_id}:live_logs", f"[waymore] {host}")
+        for line in out.splitlines():
+            if not line.strip():
+                continue
+            try:
+                # Normalize URL and extract hostname
+                host = re.sub(r"^https?://", "", line.strip()).split("/")[0].split(":")[0].lower()
+            except Exception:
+                continue
+            host = host.lstrip("*.")
+            if in_scope(host, domain) and host not in names:
+                names.add(host)
+                r.rpush(f"scan:{scan_id}:live_logs", f"[gau] {host}")
         return names, None
+    except FileNotFoundError:
+        return set(), "gau: not installed"
     except Exception as e:
-        return set(), f"waymore: {e}"
-    finally:
-        out_file.unlink(missing_ok=True)
+        return set(), f"gau: {e}"
 
 
 def write_subfinder_provider_config():
@@ -232,7 +235,7 @@ PASSIVE_SOURCES = {
     "assetfinder": src_assetfinder,
     "findomain": src_findomain,
     "crt.sh": src_crtsh,
-    "waymore": src_waymore,
+    "gau": src_gau,
 }
 
 

@@ -24,7 +24,7 @@ POLL_INTERVAL_SECONDS = int(os.getenv("MONITOR_POLL_INTERVAL_SECONDS", "1800")) 
 # never silently kick off active tools (nuclei, feroxbuster, etc.) without a
 # human explicitly starting that from the dashboard.
 DRIFT_SCAN_TOOLS = [
-    "subfinder", "assetfinder", "findomain", "crt.sh", "waymore",
+    "subfinder", "assetfinder", "findomain", "crt.sh", "gau",
     "dnsx", "cdncheck", "shodan", "httpx",
 ]
 

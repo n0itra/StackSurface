@@ -10,6 +10,7 @@ RUN apt-get -o Acquire::ForceIPv4=true update && apt-get -o Acquire::ForceIPv4=t
 
 RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.16.0
 RUN go install -v github.com/tomnomnom/assetfinder@latest
+RUN go install -v github.com/lc/gau/v2/cmd/gau@latest
 RUN go install -v github.com/projectdiscovery/httpx/cmd/httpx@v1.6.8
 RUN go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.3.7
 RUN curl -sL https://github.com/projectdiscovery/katana/releases/download/v1.7.0/katana_1.7.0_linux_amd64.zip -o katana.zip \
@@ -33,7 +34,7 @@ RUN CGO_ENABLED=1 go install -v github.com/BishopFox/jsluice/cmd/jsluice@latest
 # golang:1.22-bookworm sets GOPATH=/go, so go install places binaries in
 # /go/bin (not the ~/go/bin you'd get on a bare install). Verify there.
 RUN echo "GOPATH is: $(go env GOPATH)" && \
-    for bin in subfinder assetfinder httpx nuclei katana dnsx cdncheck alterx trufflehog jsluice puredns; do \
+    for bin in subfinder assetfinder gau httpx nuclei katana dnsx cdncheck alterx trufflehog jsluice puredns; do \
         test -x "$(go env GOPATH)/bin/$bin" || (echo "MISSING BINARY: $bin" && exit 1); \
     done
 
@@ -71,6 +72,7 @@ RUN pip install --no-cache-dir -r requirements.txt 'httpx[cli]'
 # 2. نسخ أدوات الفحص بعد البايثون (عشان Go httpx يكتب فوق Python httpx)
 COPY --from=toolbuilder /go/bin/subfinder /usr/local/bin/subfinder
 COPY --from=toolbuilder /go/bin/assetfinder /usr/local/bin/assetfinder
+COPY --from=toolbuilder /go/bin/gau /usr/local/bin/gau
 COPY --from=toolbuilder /go/bin/findomain /usr/local/bin/findomain
 COPY --from=toolbuilder /go/bin/httpx /usr/local/bin/httpx
 COPY --from=toolbuilder /go/bin/nuclei /usr/local/bin/nuclei

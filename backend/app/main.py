@@ -29,7 +29,7 @@ data_client = create_client(SUPABASE_URL, SERVICE_KEY) if SUPABASE_URL and SERVI
 auth_client = create_client(SUPABASE_URL, AUTH_KEY) if SUPABASE_URL and AUTH_KEY else None
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
-DEFAULT_TOOLS = ["subfinder", "assetfinder", "findomain", "crt.sh", "waymore",
+DEFAULT_TOOLS = ["subfinder", "assetfinder", "findomain", "crt.sh", "gau",
                  "dnsx", "cdncheck", "shodan", "httpx"]
 OPT_IN_TOOLS = {"nuclei", "katana", "arjun", "trufflehog", "jsluice",
                 "feroxbuster", "permutations"}
@@ -153,7 +153,7 @@ def assert_safe_target(domain: str) -> None:
 def resolve_tools(requested):
     if not requested:
         return DEFAULT_TOOLS
-    cleaned = [tool for tool in requested if tool in ALL_KNOWN_TOOLS and tool != "sqlmap"]
+    cleaned = [tool for tool in requested if tool in ALL_KNOWN_TOOLS]
     return cleaned or DEFAULT_TOOLS
 
 

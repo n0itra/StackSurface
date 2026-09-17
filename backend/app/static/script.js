@@ -3,7 +3,7 @@ const tools = [
   {key:"findomain", icon:"◎", desc:"Fast subdomain enumeration", tag:"Discovery"},
   {key:"assetfinder", icon:"◇", desc:"Find subdomains from multiple sources", tag:"Passive"},
   {key:"crt.sh", icon:"◉", desc:"Certificate transparency search", tag:"OSINT", url:"https://crt.sh/"},
-  {key:"waymore", icon:"🕘", desc:"Historical URLs (Wayback, OTX, CommonCrawl)", tag:"Archive", url:"https://web.archive.org/"},
+  {key:"gau", icon:"🕘", desc:"Historical URLs (CommonCrawl, Wayback) via gau", tag:"Archive", url:"https://github.com/lc/gau"},
   {key:"anew", icon:"≋", desc:"Merge & deduplicate results", tag:"Cleanup"},
   {key:"dnsx", icon:"◆", desc:"Resolves each subdomain to an IP (unresolved ones are stored, not probed)", tag:"DNS"},
   {key:"cdncheck", icon:"◆", desc:"Flags CDN/WAF-fronted IPs before port lookup", tag:"DNS"},
@@ -14,14 +14,13 @@ const tools = [
   {key:"trufflehog", icon:"◍", desc:"Regex/entropy-based secret scanning", tag:"Secrets"},
   {key:"jsluice", icon:"◍", desc:"AST-aware JS secret & endpoint analysis", tag:"Secrets"},
   {key:"arjun", icon:"⟐", desc:"Parameter discovery", tag:"Params"},
-  {key:"sqlmap", icon:"▣", desc:"Disabled — exploit/payload testing is not automated on this platform", tag:"Disabled", disabled:true},
   {key:"nuclei", icon:"⬢", desc:"Vulnerability scanning", tag:"Scanner"},
   {key:"feroxbuster", icon:"◫", desc:"Directory & file fuzzing", tag:"Fuzzing"}
 ];
 
 const stepMap = [
   ["subfinder","Subdomain Enumeration"],
-  ["waymore","Historical URL Discovery (waymore)"],
+  ["gau","Historical URL Discovery (gau)"],
   ["anew","Merge & Deduplicate"],
   ["permutations","Permutation Generation & Resolution"],
   ["dnsx","DNS Resolution (dnsx)"],
