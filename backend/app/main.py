@@ -176,6 +176,19 @@ def create_scan(req: ScanRequest, user=Depends(require_user), db=Depends(require
             raise HTTPException(status_code=404, detail="Project not found")
     tools, scan_id = resolve_tools(req.tools), uuid.uuid4().hex
     now = datetime.now(timezone.utc).isoformat()
+    scan_row = {
+        "scan_id": scan_id,
+        "user_id": user.id,
+        "domain": domain,
+        "status": "queued",
+        "tools": tools,
+        "project_id": req.project_id,
+    }
+    try:
+        db.table("scans").insert(scan_row).execute()
+    except Exception:
+        logger.exception("Scan insert failed")
+        raise HTTPException(status_code=502, detail="Could not create scan — try again")
     r.hset(f"scan:{scan_id}", mapping={"scan_id": scan_id, "user_id": user.id,
         "domain": domain, "status": "queued", "progress": "0",
         "tools": json.dumps(tools), "project_id": req.project_id or "", "created_at": now})

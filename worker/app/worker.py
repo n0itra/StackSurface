@@ -708,16 +708,17 @@ def checkpoint_scan(scan_id, domain, tools, status, user_id=None, project_id=Non
     if project_id is not None:
         payload["project_id"] = project_id
     try:
-        result = (
+        existing = (
             supabase.table("scans")
-            .update(payload)
             .select("scan_id")
             .eq("scan_id", scan_id)
+            .limit(1)
             .execute()
         )
-        if not result.data:
-            # This also supports workers starting before the API-created row,
-            # while retaining the same non-null ownership safeguards.
+        if existing.data:
+            supabase.table("scans").update(payload).eq("scan_id", scan_id).execute()
+        else:
+            # Keep this fallback for jobs queued by older API versions.
             row = {
                 "scan_id": scan_id,
                 "domain": domain,
