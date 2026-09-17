@@ -8,7 +8,7 @@ RUN apt-get -o Acquire::ForceIPv4=true update && apt-get -o Acquire::ForceIPv4=t
     ca-certificates curl git build-essential unzip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.6.6
+RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.16.0
 RUN go install -v github.com/tomnomnom/assetfinder@latest
 RUN go install -v github.com/projectdiscovery/httpx/cmd/httpx@v1.6.8
 RUN go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.3.7
