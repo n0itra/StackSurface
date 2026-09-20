@@ -1,27 +1,124 @@
+// --- Supabase & Auth Setup ---
+const supabaseClient = supabase.createClient(window.__SUPABASE_URL__, window.__SUPABASE_ANON_KEY__);
+let currentSession = null;
+let currentScanData = null; // لحفظ الداتا الخاصة بالخريطة
+let networkInstance = null; // متغير خريطة الشبكة
+
+async function initAuth() {
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (data.session) {
+    handleLoginSuccess(data.session);
+  } else {
+    document.getElementById("authOverlay").style.display = "flex";
+    document.getElementById("appContent").style.display = "none";
+  }
+
+  supabaseClient.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_IN' && session) {
+      handleLoginSuccess(session);
+    } else if (event === 'SIGNED_OUT') {
+      currentSession = null;
+      document.getElementById("authOverlay").style.display = "flex";
+      document.getElementById("appContent").style.display = "none";
+      window.location.reload();
+    }
+  });
+}
+
+function handleLoginSuccess(session) {
+  currentSession = session;
+  document.getElementById("authOverlay").style.display = "none";
+  document.getElementById("appContent").style.display = "block";
+  document.getElementById("userEmailDisplay").textContent = session.user.email;
+  loadProjects();
+  loadHistory();
+}
+
+document.getElementById("loginBtn").addEventListener("click", async () => {
+  const email = document.getElementById("authEmail").value;
+  const password = document.getElementById("authPassword").value;
+  const msgEl = document.getElementById("authMessage");
+  
+  if (!email || !password) {
+    msgEl.textContent = "Please enter email and password.";
+    return;
+  }
+  msgEl.textContent = "Logging in...";
+  
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) {
+    msgEl.textContent = error.message;
+  } else {
+    msgEl.textContent = "";
+  }
+});
+
+document.getElementById("signupBtn").addEventListener("click", async () => {
+  const email = document.getElementById("authEmail").value;
+  const password = document.getElementById("authPassword").value;
+  const msgEl = document.getElementById("authMessage");
+  
+  if (!email || !password) {
+    msgEl.textContent = "Please enter email and password.";
+    return;
+  }
+  msgEl.textContent = "Creating account...";
+  
+  const { data, error } = await supabaseClient.auth.signUp({ email, password });
+  if (error) {
+    msgEl.textContent = error.message;
+  } else {
+    msgEl.textContent = "Account created! You can now log in.";
+  }
+});
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  await supabaseClient.auth.signOut();
+});
+
+// Improved API wrapper utilizing Supabase JWT
+function api(url, options = {}) {
+  if (!currentSession) {
+    console.error("No active session found!");
+    return Promise.reject("No session");
+  }
+  
+  const headers = {
+    "Authorization": `Bearer ${currentSession.access_token}`,
+    ...(options.headers || {})
+  };
+  
+  return fetch(url, { ...options, headers })
+    .catch(err => {
+      console.error(`Network Error while fetching ${url}:`, err);
+      throw err;
+    });
+}
+
+// --- App Data ---
 const tools = [
-  {key:"subfinder", icon:"⌁", desc:"Passive subdomain enumeration (auto-uses github/securitytrails/virustotal/censys/netlas/c99/urlscan/shodan keys if configured on the server)", tag:"Passive"},
+  {key:"subfinder", icon:"⌁", desc:"Passive subdomain enumeration", tag:"Passive"},
   {key:"findomain", icon:"◎", desc:"Fast subdomain enumeration", tag:"Discovery"},
   {key:"assetfinder", icon:"◇", desc:"Find subdomains from multiple sources", tag:"Passive"},
   {key:"crt.sh", icon:"◉", desc:"Certificate transparency search", tag:"OSINT", url:"https://crt.sh/"},
-  {key:"waymore", icon:"🕘", desc:"Historical URLs (Wayback, OTX, CommonCrawl)", tag:"Archive", url:"https://web.archive.org/"},
+  {key:"gau", icon:"🕘", desc:"Fetch historical URLs (Archive & Wayback)", tag:"Archive"},
   {key:"anew", icon:"≋", desc:"Merge & deduplicate results", tag:"Cleanup"},
-  {key:"dnsx", icon:"◆", desc:"Resolves each subdomain to an IP (unresolved ones are stored, not probed)", tag:"DNS"},
+  {key:"dnsx", icon:"◆", desc:"Resolves each subdomain to an IP", tag:"DNS"},
   {key:"cdncheck", icon:"◆", desc:"Flags CDN/WAF-fronted IPs before port lookup", tag:"DNS"},
-  {key:"shodan", icon:"•", desc:"Open-port lookup per resolved IP (requires SHODAN_API_KEY)", tag:"Network", url:"https://www.shodan.io/", apiKey:true},
-  {key:"permutations", icon:"⟲", desc:"Generates & resolves likely subdomain guesses (high DNS volume)", tag:"Active"},
+  {key:"shodan", icon:"•", desc:"Open-port lookup per resolved IP (requires API Key)", tag:"Network", apiKey:true},
+  {key:"permutations", icon:"⟲", desc:"Generates & resolves likely subdomain guesses", tag:"Active"},
   {key:"httpx", icon:"↗", desc:"Alive host & technology detection", tag:"HTTP"},
   {key:"katana", icon:"⌁", desc:"Web crawling & URL discovery", tag:"Crawler"},
   {key:"trufflehog", icon:"◍", desc:"Regex/entropy-based secret scanning", tag:"Secrets"},
   {key:"jsluice", icon:"◍", desc:"AST-aware JS secret & endpoint analysis", tag:"Secrets"},
   {key:"arjun", icon:"⟐", desc:"Parameter discovery", tag:"Params"},
-  {key:"sqlmap", icon:"▣", desc:"Disabled — exploit/payload testing is not automated on this platform", tag:"Disabled", disabled:true},
   {key:"nuclei", icon:"⬢", desc:"Vulnerability scanning", tag:"Scanner"},
   {key:"feroxbuster", icon:"◫", desc:"Directory & file fuzzing", tag:"Fuzzing"}
 ];
 
 const stepMap = [
   ["subfinder","Subdomain Enumeration"],
-  ["waymore","Historical URL Discovery (waymore)"],
+  ["gau","Historical URL Discovery (gau)"],
   ["anew","Merge & Deduplicate"],
   ["permutations","Permutation Generation & Resolution"],
   ["dnsx","DNS Resolution (dnsx)"],
@@ -36,6 +133,8 @@ const stepMap = [
   ["feroxbuster","Directory Fuzzing (feroxbuster)"]
 ];
 
+const lightScanTools = ["subfinder", "findomain", "assetfinder", "crt.sh", "gau", "anew", "dnsx", "cdncheck", "shodan", "httpx"];
+
 function buildDatasets(scan) {
   const subdomains = scan.subdomains || [];
   const unresolved = new Set(scan.unresolved || []);
@@ -48,7 +147,7 @@ function buildDatasets(scan) {
   return {
     subdomains: {
       title: "Subdomains",
-      subtitle: `Total: ${subdomains.length} subdomains — ${unresolved.size} with no IP (stored only, not probed)`,
+      subtitle: `Total: ${subdomains.length} subdomains — ${unresolved.size} with no IP`,
       search: "Search subdomains...",
       columns: ["#", "Subdomain", "Status", "Technology"],
       rows: subdomains.map((s, i) => {
@@ -80,9 +179,7 @@ function buildDatasets(scan) {
     },
     endpoints: {
       title: "Endpoints",
-      subtitle: scan.endpoints && scan.endpoints.length
-        ? `${scan.endpoints.length} endpoints discovered (katana / arjun)`
-        : "No endpoints yet — select katana and/or arjun for this scan",
+      subtitle: `${(scan.endpoints || []).length} endpoints discovered`,
       search: "Search endpoints...",
       columns: ["#", "Endpoint", "Method", "Status"],
       rows: (scan.endpoints || []).map((e, i) => [
@@ -92,9 +189,7 @@ function buildDatasets(scan) {
     },
     secrets: {
       title: "Secrets",
-      subtitle: scan.secrets && scan.secrets.length
-        ? `${scan.secrets.length} potential secrets found in discovered JS files`
-        : "No findings — select trufflehog and/or jsluice (requires katana for JS discovery)",
+      subtitle: `${(scan.secrets || []).length} potential secrets found`,
       search: "Search secret locations...",
       columns: ["#", "Type", "Location", "Severity"],
       rows: (scan.secrets || []).map((s, i) => [
@@ -105,9 +200,7 @@ function buildDatasets(scan) {
     },
     vulnerabilities: {
       title: "Vulnerabilities",
-      subtitle: vulnerabilities.length
-        ? `${vulnerabilities.length} template matches from nuclei (detection only, not confirmed exploits)`
-        : "No nuclei findings (nuclei may not have been selected for this scan)",
+      subtitle: `${vulnerabilities.length} template matches`,
       search: "Search vulnerabilities...",
       columns: ["#", "Finding", "Host", "Severity", "Confidence"],
       rows: vulnerabilities.map((v, i) => [
@@ -119,12 +212,7 @@ function buildDatasets(scan) {
     },
     changes: {
       title: "Changes",
-      subtitle: (() => {
-        const added = (scan.added_assets || []).length;
-        const removed = (scan.removed_assets || []).length;
-        if (!added && !removed) return "No changes detected — either the first scan of this project, or nothing's changed since last time";
-        return `${added} new, ${removed} removed since last scan`;
-      })(),
+      subtitle: `${(scan.added_assets || []).length} new, ${(scan.removed_assets || []).length} removed since last scan`,
       search: "Search changes...",
       columns: ["#", "Subdomain", "Change"],
       rows: [
@@ -135,12 +223,7 @@ function buildDatasets(scan) {
     },
     dependencies: {
       title: "Dependencies",
-      subtitle: (() => {
-        const newCount = (scan.new_js_dependencies || []).length;
-        const cveCount = (scan.js_cve_findings || []).length;
-        if (!newCount && !cveCount) return "No new JS libraries detected, or no project linked for tracking";
-        return `${newCount} new librar${newCount === 1 ? "y" : "ies"}, ${cveCount} with known CVEs`;
-      })(),
+      subtitle: `${(scan.new_js_dependencies || []).length} new JS libraries`,
       search: "Search dependencies...",
       columns: ["#", "Library", "Version", "Script", "CVEs"],
       rows: (scan.js_cve_findings && scan.js_cve_findings.length
@@ -154,9 +237,7 @@ function buildDatasets(scan) {
     },
     directories: {
       title: "Directories",
-      subtitle: scan.directories && scan.directories.length
-        ? `${scan.directories.length} paths discovered (feroxbuster)`
-        : "No results — select feroxbuster for this scan",
+      subtitle: `${(scan.directories || []).length} paths discovered`,
       search: "Search directories...",
       columns: ["#", "Path", "Status", "Size"],
       rows: (scan.directories || []).map((d, i) => [
@@ -174,32 +255,14 @@ const progressList = document.getElementById("progressList");
 const consoleEl = document.getElementById("console");
 const startBtn = document.getElementById("startBtn");
 const domainInput = document.getElementById("domainInput");
+const webhookInput = document.getElementById("webhookInput");
+const forceRefreshToggle = document.getElementById("forceRefreshToggle");
 const statusDot = document.getElementById("statusDot");
 const scanStatus = document.getElementById("scanStatus");
 const selectAll = document.getElementById("selectAll");
 
 let currentStep = -1;
 let running = false;
-let timers = [];
-
-// Improved API wrapper with better error handling and strict headers
-function api(url, options = {}) {
-  if (!window.__API_KEY__) {
-    console.warn("API Key is missing in the frontend! Requests may be rejected by the backend.");
-  }
-  
-  const headers = {
-    "x-api-key": window.__API_KEY__ || "",
-    ...(options.headers || {})
-  };
-  
-  return fetch(url, { ...options, headers })
-    .catch(err => {
-      // Catch network errors specifically (like backend down or CORS issues)
-      console.error(`Network Error while fetching ${url}:`, err);
-      throw err;
-    });
-}
 
 function renderTools() {
   toolsList.innerHTML = tools.map((tool) => `
@@ -241,9 +304,16 @@ function setProgress(idx,state,meta,pct) {
   el.querySelector(".progress-pct").textContent = pct ?? "—";
 }
 
+// حماية المتصفح (Anti-freeze) اثناء العرض الحي
 function appendLog(text) {
   const stamp = new Date().toLocaleTimeString([], {hour12:false});
   consoleEl.textContent += `[${stamp}] ${text}\n`;
+  
+  const lines = consoleEl.textContent.split('\n');
+  if (lines.length > 600) {
+    consoleEl.textContent = lines.slice(-600).join('\n') + '\n';
+  }
+  
   consoleEl.scrollTop = consoleEl.scrollHeight;
 }
 
@@ -258,21 +328,90 @@ function resetProgress() {
   scanStatus.textContent = "Idle";
 }
 
+// رسم خريطة الشبكة التفاعلية (Network Graph)
+function drawNetworkGraph(scanData) {
+  if (!scanData || !scanData.subdomains) return;
+  
+  const container = document.getElementById("networkGraph");
+  if (!container) return; // تأمين لو الـ DOM لسه مش موجود
+
+  const nodes = new vis.DataSet();
+  const edges = new vis.DataSet();
+  
+  // نعرض أول 300 دومين لتجنب بطء المتصفح
+  const subdomains = scanData.subdomains.slice(0, 300);
+  const rootDomain = scanData.domain || "Target";
+  
+  // العقدة الأساسية (النواة)
+  nodes.add({ id: rootDomain, label: rootDomain, shape: "hexagon", color: "#3b82f6", font: {color: "#fff"}, size: 25 });
+  
+  const aliveByHost = {};
+  (scanData.alive || []).forEach(h => { if (h && h.host) aliveByHost[h.host] = h; });
+  
+  subdomains.forEach(sub => {
+    if (sub === rootDomain) return; // عشان مانكررش النواة
+    const isAlive = !!aliveByHost[sub];
+    
+    // إضافة الـ Subdomain
+    nodes.add({ 
+      id: sub, 
+      label: sub, 
+      shape: "dot", 
+      size: isAlive ? 14 : 9,
+      color: isAlive ? "#10b981" : "#475569", 
+      font: {color: "#cbd5e1"} 
+    });
+    
+    // توصيل الدومين الأساسي بالـ Subdomain
+    edges.add({ from: rootDomain, to: sub, color: "#1e293b" });
+    
+    // إضافة الـ IPs للصاب دومينات الشغالة
+    if (isAlive && aliveByHost[sub].a) {
+      aliveByHost[sub].a.slice(0, 2).forEach(ip => {
+        if (!nodes.get(ip)) {
+          nodes.add({ id: ip, label: ip, shape: "box", color: "#ef4444", font: {color: "#fff"}, size: 10 });
+        }
+        edges.add({ from: sub, to: ip, color: "#1e293b", dashes: true });
+      });
+    }
+  });
+  
+  const data = { nodes: nodes, edges: edges };
+  const options = {
+    physics: { barnesHut: { gravitationalConstant: -2000, centralGravity: 0.3, springLength: 100 } },
+    interaction: { hover: true, tooltipDelay: 200, zoomView: true, dragView: true }
+  };
+  
+  // تدمير النسخة القديمة قبل رسم الجديدة
+  if (networkInstance) networkInstance.destroy(); 
+  networkInstance = new vis.Network(container, data, options);
+}
+
 async function runScan()  { 
   if(running) return;
   const domain = domainInput.value.trim() || "example.com";
+  const discordWebhook = webhookInput ? webhookInput.value.trim() : null; 
+  const forceRefresh = forceRefreshToggle ? forceRefreshToggle.checked : false;
   const selected = selectedToolKeys();
   const selectedSet = new Set(selected);
   const projectId = document.getElementById("projectSelect").value || null;
+  
+  // --- التعديل الجديد: قراءة الكلمات المخصصة من الواجهة ---
+  const customWordlistEl = document.getElementById("customWordlistInput");
+  const customWordlist = customWordlistEl ? customWordlistEl.value.trim() : "";
+  
   running = true;
   startBtn.disabled = true;
   startBtn.querySelector("span").textContent = "Running...";
   statusDot.classList.add("running");
   scanStatus.textContent = "Running";
   consoleEl.textContent = "";
+  
   appendLog(`Target accepted: ${domain}`);
+  if (forceRefresh) appendLog(`Force Refresh requested. Ignoring cached data.`);
+  if (discordWebhook) appendLog(`Custom Discord Webhook attached. Alerts enabled.`);
+  if (customWordlist && selected.includes("feroxbuster")) appendLog(`Custom wordlist provided for directory fuzzing.`);
   appendLog(`Selected tools: ${selected.join(", ") || "none"}`);
-  if (projectId) appendLog(`Linked to project — asset history & JS dependency tracking enabled.`);
 
   resetProgress();
   stepMap.forEach(([key], idx) => {
@@ -282,11 +421,20 @@ async function runScan()  {
   });
 
   let scanId;
+  let isCached = false;
+  
   try {
     const res = await api("/api/scans", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({domain, tools: selected, project_id: projectId}),
+      body: JSON.stringify({
+        domain, 
+        tools: selected, 
+        project_id: projectId,
+        discord_webhook: discordWebhook || undefined,
+        force_refresh: forceRefresh,
+        custom_wordlist: customWordlist || undefined // --- إرسالها للباك إند هنا ---
+      }),
     });
     
     if (!res.ok) {
@@ -297,7 +445,13 @@ async function runScan()  {
     }
     const data = await res.json();
     scanId = data.scan_id;
-    appendLog(`Scan queued (${scanId}).`);
+    isCached = data.cached;
+    
+    if (isCached) {
+      appendLog(`Found recent cached scan for ${domain}. Displaying results instantly.`);
+    } else {
+      appendLog(`Scan queued (${scanId}).`);
+    }
   } catch (e) {
     appendLog(`Network error contacting backend. Make sure the server is running.`);
     resetRunState();
@@ -305,7 +459,7 @@ async function runScan()  {
   }
 
   const startedAt = Date.now();
-  const maxWaitMs = 15 * 60 * 1000; 
+  const maxWaitMs = 60 * 60 * 1000; 
   let lastProgress = -1;
   let lastLogIndex = 0; 
 
@@ -317,21 +471,36 @@ async function runScan()  {
       if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
       scan = await res.json();
     } catch (e) {
-      appendLog(`Polling error: ${e.message || "Failed to fetch progress"}`);
       continue;
     }
 
     const liveLogs = scan.live_logs || [];
     if (liveLogs.length > lastLogIndex) {
+        let chunk = "";
         for (let i = lastLogIndex; i < liveLogs.length; i++) {
-            appendLog(`> ${liveLogs[i]}`); 
+            chunk += `> ${liveLogs[i]}\n`;
         }
+        appendLog(chunk.trim()); 
         lastLogIndex = liveLogs.length;
     }
 
     const progress = Number(scan.progress || 0);
     if (progress !== lastProgress) {
       lastProgress = progress;
+    }
+
+    // تحديث الداتا الكلية للرسم والجداول
+    currentScanData = scan;
+    datasets = buildDatasets(scan);
+    refreshResultTabs(scan, domain);
+    
+    if (!isCached) {
+      const activeTab = document.querySelector(".result-tab.active")?.dataset.tab || "subdomains";
+      if (activeTab === "network") {
+        drawNetworkGraph(currentScanData);
+      } else {
+        renderTable(activeTab);
+      }
     }
 
     if (scan.status === "completed" || scan.status === "failed") {
@@ -341,15 +510,14 @@ async function runScan()  {
       });
       (scan.errors || []).forEach(e => appendLog(`Note: ${e}`));
 
-      datasets = buildDatasets(scan);
-      refreshResultTabs(scan, domain);
-      renderTable(document.querySelector(".result-tab.active")?.dataset.tab || "subdomains");
-
       statusDot.classList.remove("running");
       statusDot.classList.add("done");
       scanStatus.textContent = scan.status === "failed" ? "Failed" : "Completed";
       appendLog(scan.status === "failed" ? "Scan finished with errors." : "Recon pipeline completed successfully.");
+      
       resetRunState();
+      loadHistory(); // تحديث السجل بعد ما يخلص
+      
       if (scan.status !== "failed" || (scan.subdomains || []).length) {
         goTo("results");
       }
@@ -377,15 +545,22 @@ function goTo(page) {
 }
 
 function refreshResultTabs(scan, domain) {
-  document.querySelectorAll(".result-tab").forEach(tab => {
+  // تخطي تاب الخريطة أثناء تحديث الأرقام عشان ملهاش Span فيه رقم
+  document.querySelectorAll(".result-tab:not([data-tab='network'])").forEach(tab => {
     const key = tab.dataset.tab;
     const total = (datasets[key] && datasets[key].total) || 0;
     const span = tab.querySelector("span");
     if (span) span.textContent = total.toLocaleString();
   });
+  
   document.getElementById("resultDomain").textContent = domain;
-  document.querySelector(".scan-time").textContent =
-    "Scan Time: " + new Date().toLocaleString([], {dateStyle:"medium", timeStyle:"short"});
+  document.getElementById("resultTitleH1").textContent = scan.status === "running" ? "Live Results..." : "Scan Results";
+  
+  if (scan.completed_at || scan.status === "completed") {
+    document.getElementById("scanTimeDisplay").textContent = "Scan Time: " + new Date().toLocaleString([], {dateStyle:"medium", timeStyle:"short"});
+  } else {
+    document.getElementById("scanTimeDisplay").textContent = "Scan running...";
+  }
 }
 
 function escapeHtml(value) {
@@ -399,12 +574,23 @@ function escapeHtml(value) {
 
 function renderTable(tabKey, filter=""){
   const data = datasets[tabKey];
+  if (!data) return; // حماية ضد الأخطاء مع التابات اللي ملهاش داتا مباشرة زي الخريطة
+  
   document.getElementById("tableTitle").textContent = data.title;
   document.getElementById("tableSubtitle").textContent = data.subtitle;
   document.getElementById("tableSearch").placeholder = data.search;
 
   document.getElementById("tableHead").innerHTML = `<tr>${data.columns.map(c=>`<th>${escapeHtml(c)}</th>`).join("")}</tr>`;
+  
   const rows = data.rows.filter(r => r.join(" ").toLowerCase().includes(filter.toLowerCase()));
+  
+  if (rows.length === 0) {
+    document.getElementById("tableBody").innerHTML = `<tr class="loading-row"><td colspan="${data.columns.length}">No data found or still scanning...</td></tr>`;
+    document.getElementById("rowSummary").textContent = `Showing 0 results`;
+    document.getElementById("pagination").innerHTML = "";
+    return;
+  }
+
   document.getElementById("tableBody").innerHTML = rows.map(row => {
     return `<tr>${row.map((cell,i)=>{
       const safeCell = escapeHtml(cell);
@@ -420,11 +606,80 @@ function renderTable(tabKey, filter=""){
       return `<td>${safeCell}</td>`;
     }).join("")}</tr>`;
   }).join("");
-  document.getElementById("rowSummary").textContent = `Showing 1 to ${rows.length} of ${data.total} results`;
+  
+  document.getElementById("rowSummary").textContent = `Showing 1 to ${rows.length > 50 ? 50 : rows.length} of ${data.total} results`;
   document.getElementById("pagination").innerHTML = [1,2,3,4,5,"…",10].map((n,i)=>
     `<button class="page-btn ${i===0?"active":""}">${n}</button>`).join("");
 }
 
+async function loadHistory() {
+  const tbody = document.getElementById("historyTableBody");
+  try {
+    const res = await api("/api/history");
+    if (!res.ok) throw new Error("Failed to load history");
+    const history = await res.json();
+    
+    if (history.length === 0) {
+      tbody.innerHTML = `<tr class="loading-row"><td colspan="6">No scans found in your history.</td></tr>`;
+      return;
+    }
+    
+    tbody.innerHTML = history.map(item => {
+      const date = item.completed_at ? new Date(item.completed_at).toLocaleString([], {dateStyle:"medium", timeStyle:"short"}) : "Running...";
+      const isCompleted = item.status === "completed";
+      const statusClass = isCompleted ? "b200" : item.status === "failed" ? "b404" : "b302";
+      
+      const subsCount = item.subdomains_count ?? 0;
+      const vulnsCount = item.vulnerabilities_count ?? 0;
+      const vulnClass = vulnsCount > 0 ? "color: #ef4444; font-weight: bold;" : "color: #60758a;";
+      
+      return `<tr>
+        <td>${escapeHtml(date)}</td>
+        <td style="font-weight: 500;">${escapeHtml(item.domain)}</td>
+        <td><span class="badge ${statusClass}">${escapeHtml(item.status)}</span></td>
+        <td style="font-weight: 500; color: #3b82f6;">${subsCount}</td>
+        <td style="${vulnClass}">${vulnsCount}</td>
+        <td>
+          <button class="secondary-btn small" onclick="loadScanFromHistory('${escapeHtml(item.scan_id)}')">View</button>
+        </td>
+      </tr>`;
+    }).join("");
+    
+  } catch (e) {
+    tbody.innerHTML = `<tr class="loading-row"><td colspan="6">Failed to load history.</td></tr>`;
+  }
+}
+
+// Global function to be called from the History Table 'View' buttons
+window.loadScanFromHistory = async function(scanId) {
+  try {
+    const res = await api(`/api/scans/${scanId}`);
+    if (!res.ok) throw new Error("Scan not found");
+    const scan = await res.json();
+    
+    currentScanData = scan;
+    datasets = buildDatasets(scan);
+    refreshResultTabs(scan, scan.domain);
+    
+    // عند استدعاء فحص، نعرض جدول Subdomains افتراضياً
+    document.querySelectorAll(".result-tab").forEach(t => t.classList.remove("active"));
+    document.querySelector(".result-tab[data-tab='subdomains']").classList.add("active");
+    
+    const tableCard = document.getElementById("tableCard");
+    const mapCard = document.getElementById("mapCard");
+    if (tableCard) tableCard.style.display = "block";
+    if (mapCard) mapCard.style.display = "none";
+    
+    renderTable("subdomains");
+    goTo("results");
+  } catch (e) {
+    alert("Could not load scan details.");
+  }
+};
+
+document.getElementById("refreshHistoryBtn").addEventListener("click", loadHistory);
+
+// --- Events Setup ---
 renderTools();
 renderProgress();
 renderTable("subdomains");
@@ -441,7 +696,7 @@ async function loadProjects() {
       projects.map(p => `<option value="${escapeHtml(p.project_id)}">${escapeHtml(p.name)} — ${escapeHtml(p.domain)}${p.monitoring ? " 🟢" : ""}</option>`).join("");
     select.value = current;
   } catch (e) {
-    console.warn("Could not load projects (Backend/Supabase unreachable).");
+    console.warn("Could not load projects.");
   }
 }
 
@@ -481,9 +736,21 @@ document.getElementById("saveProjectBtn").addEventListener("click", async () => 
   }
 });
 
-loadProjects();
-
 startBtn.addEventListener("click", runScan);
+
+// Presets
+document.getElementById("lightScanBtn").addEventListener("click", () => {
+  document.querySelectorAll(".tool-row input:not(:disabled)").forEach(checkbox => {
+    checkbox.checked = lightScanTools.includes(checkbox.dataset.tool);
+  });
+  selectAll.checked = false;
+});
+document.getElementById("deepScanBtn").addEventListener("click", () => {
+  document.querySelectorAll(".tool-row input:not(:disabled)").forEach(checkbox => {
+    checkbox.checked = true;
+  });
+  selectAll.checked = true;
+});
 
 selectAll.addEventListener("change", e => {
   document.querySelectorAll(".tool-row input:not(:disabled)").forEach(i => i.checked = e.target.checked);
@@ -527,20 +794,37 @@ document.getElementById("clearConsole").addEventListener("click", ()=>{
 
 document.getElementById("tableSearch").addEventListener("input", e=>{
   const active = document.querySelector(".result-tab.active").dataset.tab;
-  renderTable(active,e.target.value);
+  if(active !== "network") renderTable(active,e.target.value);
 });
 
+// التعامل مع التبديل بين التابات (بما فيها خريطة الشبكة)
 document.querySelectorAll(".result-tab").forEach(tab => {
   tab.addEventListener("click", ()=>{
     document.querySelectorAll(".result-tab").forEach(t=>t.classList.remove("active"));
     tab.classList.add("active");
     document.getElementById("tableSearch").value = "";
-    renderTable(tab.dataset.tab);
+    
+    const targetTab = tab.dataset.tab;
+    const tableCard = document.getElementById("tableCard");
+    const mapCard = document.getElementById("mapCard");
+    
+    if (targetTab === "network") {
+      if(tableCard) tableCard.style.display = "none";
+      if(mapCard) mapCard.style.display = "block";
+      // استدعاء دالة الرسم بعد جزء من الثانية لضمان حساب أبعاد الشاشة بشكل صحيح
+      setTimeout(() => drawNetworkGraph(currentScanData), 50); 
+    } else {
+      if(tableCard) tableCard.style.display = "block";
+      if(mapCard) mapCard.style.display = "none";
+      renderTable(targetTab);
+    }
   });
 });
 
 document.getElementById("exportBtn").addEventListener("click", ()=>{
   const active = document.querySelector(".result-tab.active").dataset.tab;
+  if (active === "network") return alert("Can't export map directly to CSV. Export a table instead.");
+  
   const data = datasets[active];
   const csv = [data.columns.join(","), ...data.rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(","))].join("\n");
   const blob = new Blob([csv], {type:"text/csv"});
@@ -554,6 +838,8 @@ document.getElementById("exportBtn").addEventListener("click", ()=>{
 document.getElementById("downloadBtn").addEventListener("click", ()=>{
   const domain = domainInput.value.trim() || "example.com";
   const activeTab = document.querySelector(".result-tab.active")?.dataset.tab || "subdomains";
+  if (activeTab === "network") return alert("Please select a table tab to download a PDF report.");
+  
   const data = datasets[activeTab];
   const reportHtml = `<!doctype html><html><head><meta charset="utf-8"><title>ReconX Report</title><style>body{font-family:Arial,sans-serif;color:#17283a;padding:36px}h1{margin:0 0 8px;font-size:28px}.meta{color:#60758a;margin-bottom:28px}h2{font-size:18px;margin-top:28px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #d6e0e8;padding:9px;text-align:left;font-size:11px}th{background:#eef4f8}.footer{margin-top:28px;color:#71869a;font-size:10px}</style></head><body><h1>ReconX Security Report</h1><div class="meta">Automated Recon • ${domain} • ${new Date().toLocaleString()}</div><h2>${data.title}</h2><p>${data.subtitle}</p><table><thead><tr>${data.columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${data.rows.map(r=>`<tr>${r.map(v=>`<td>${String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")}</td>`).join("")}</tr>`).join("")}</tbody></table><div class="footer">Generated by ReconX.</div></body></html>`;
   const reportWindow = window.open("", "_blank");
@@ -569,3 +855,6 @@ themeToggle?.addEventListener("click", () => {
   document.body.classList.toggle("light");
   localStorage.setItem("reconx-theme", document.body.classList.contains("light") ? "light" : "dark");
 });
+
+// Initialize Auth on Load
+initAuth();

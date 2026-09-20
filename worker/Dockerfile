@@ -23,7 +23,12 @@ RUN curl -sL https://github.com/trufflesecurity/trufflehog/releases/download/v3.
     && mv trufflehog /go/bin/ \
     && rm trufflehog.tar.gz
 RUN go install -v github.com/d3mondev/puredns/v2@latest
-
+# Install gau
+RUN wget https://github.com/lc/gau/releases/download/v2.2.3/gau_2.2.3_linux_amd64.tar.gz \
+    && tar -xvf gau_2.2.3_linux_amd64.tar.gz \
+    && mv gau /usr/local/bin/ \
+    && chmod +x /usr/local/bin/gau \
+    && rm gau_2.2.3_linux_amd64.tar.gz
 # jsluice depends on go-tree-sitter, which needs CGO to compile its JS
 # grammar bindings (it wraps a C library). Building it with the rest above
 # (CGO_ENABLED=0, for static binaries) fails with "undefined: Node" — the
