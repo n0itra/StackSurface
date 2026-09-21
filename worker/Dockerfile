@@ -24,6 +24,7 @@ RUN curl -sL https://github.com/trufflesecurity/trufflehog/releases/download/v3.
     && mv trufflehog /go/bin/ \
     && rm trufflehog.tar.gz
 RUN go install -v github.com/d3mondev/puredns/v2@latest
+RUN go install -v github.com/ffuf/ffuf/v2@v2.1.0
 
 # jsluice depends on go-tree-sitter, which needs CGO to compile its JS
 # grammar bindings (it wraps a C library). Building it with the rest above
@@ -34,7 +35,7 @@ RUN CGO_ENABLED=1 go install -v github.com/BishopFox/jsluice/cmd/jsluice@latest
 # golang:1.22-bookworm sets GOPATH=/go, so go install places binaries in
 # /go/bin (not the ~/go/bin you'd get on a bare install). Verify there.
 RUN echo "GOPATH is: $(go env GOPATH)" && \
-    for bin in subfinder assetfinder gau httpx nuclei katana dnsx cdncheck alterx trufflehog jsluice puredns; do \
+    for bin in subfinder assetfinder gau httpx nuclei katana dnsx cdncheck alterx trufflehog jsluice puredns ffuf; do \
         test -x "$(go env GOPATH)/bin/$bin" || (echo "MISSING BINARY: $bin" && exit 1); \
     done
 
@@ -45,10 +46,6 @@ RUN git clone --depth 1 https://github.com/blechschmidt/massdns.git /tmp/massdns
     && cp bin/massdns /go/bin/massdns \
     && test -x /go/bin/massdns || (echo "MISSING BINARY: massdns" && exit 1)
 
-# feroxbuster ships as a prebuilt Rust binary, not a Go module.
-RUN curl -sL https://raw.githubusercontent.com/epi052/feroxbuster/main/install-nix.sh | bash \
-    && mv ./feroxbuster /go/bin/feroxbuster \
-    && test -x /go/bin/feroxbuster || (echo "MISSING BINARY: feroxbuster" && exit 1)
 
 # findomain also ships as a prebuilt Linux binary release.
 RUN curl -sL https://github.com/Findomain/Findomain/releases/latest/download/findomain-linux.zip -o /tmp/findomain.zip \
@@ -84,9 +81,9 @@ COPY --from=toolbuilder /go/bin/puredns /usr/local/bin/puredns
 COPY --from=toolbuilder /go/bin/massdns /usr/local/bin/massdns
 COPY --from=toolbuilder /go/bin/trufflehog /usr/local/bin/trufflehog
 COPY --from=toolbuilder /go/bin/jsluice /usr/local/bin/jsluice
-COPY --from=toolbuilder /go/bin/feroxbuster /usr/local/bin/feroxbuster
+COPY --from=toolbuilder /go/bin/ffuf /usr/local/bin/ffuf
 
-# Small, bounded wordlist for feroxbuster
+# Small, bounded wordlist for directory fuzzing
 COPY wordlist-small.txt /usr/local/share/wordlist-small.txt
 
 # Trusted public resolvers for puredns's bulk resolution step.

@@ -15,7 +15,7 @@ const tools = [
   {key:"jsluice", icon:"◍", desc:"AST-aware JS secret & endpoint analysis", tag:"Secrets"},
   {key:"arjun", icon:"⟐", desc:"Parameter discovery", tag:"Params"},
   {key:"nuclei", icon:"⬢", desc:"Vulnerability scanning", tag:"Scanner"},
-  {key:"feroxbuster", icon:"◫", desc:"Directory & file fuzzing", tag:"Fuzzing"}
+  {key:"ffuf", icon:"◫", desc:"Directory & file fuzzing", tag:"Fuzzing"}
 ];
 
 const stepMap = [
@@ -32,7 +32,7 @@ const stepMap = [
   ["jsluice","JS Secret Analysis (jsluice)"],
   ["arjun","Parameter Discovery (arjun)"],
   ["nuclei","Vulnerability Scanning (nuclei)"],
-  ["feroxbuster","Directory Fuzzing (feroxbuster)"]
+  ["ffuf","Directory Fuzzing (ffuf)"]
 ];
 
 function buildDatasets(scan) {
@@ -154,8 +154,8 @@ function buildDatasets(scan) {
     directories: {
       title: "Directories",
       subtitle: scan.directories && scan.directories.length
-        ? `${scan.directories.length} paths discovered (feroxbuster)`
-        : "No results — select feroxbuster for this scan",
+        ? `${scan.directories.length} paths discovered (ffuf)`
+        : "No results — select ffuf for this scan",
       search: "Search directories...",
       columns: ["#", "Path", "Status", "Size"],
       rows: (scan.directories || []).map((d, i) => [

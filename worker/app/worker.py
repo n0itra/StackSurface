@@ -12,17 +12,16 @@ from pathlib import Path
 
 import redis
 import httpx
-from supabase import create_client
+
+from sqlite_store import SQLiteStore
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 r = redis.from_url(REDIS_URL, decode_responses=True)
 
+db = SQLiteStore()
+
 SCAN_DIR = Path("/scans")
 SCAN_DIR.mkdir(parents=True, exist_ok=True)
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 SECURITYTRAILS_API_KEY = os.getenv("SECURITYTRAILS_API_KEY")
@@ -86,11 +85,11 @@ def run_command_live(scan_id, args, timeout=300, tool_name=""):
                     d = json.loads(clean)
                     display = f"[VULN] {d.get('info', {}).get('name')} -> {d.get('host')}"
                 except: pass
-            elif tool_name == "feroxbuster":
+            elif tool_name == "ffuf":
                 try:
                     d = json.loads(clean)
-                    if d.get("type") == "response" and d.get("status", 0) < 400:
-                        display = d.get("url")
+                    if d.get("status") is not None and d.get("status", 0) < 400:
+                        display = d.get("url") or d.get("input", {}).get("URL")
                 except: pass
                 
             if display:
@@ -124,8 +123,42 @@ def is_safe_target(domain: str) -> bool:
             return False
     return bool(resolved_ips)
 
+def normalize_host_name(name, domain=None):
+    if name is None:
+        return None
+    cleaned = str(name).strip().lower().rstrip(".")
+    if not cleaned:
+        return None
+    cleaned = re.sub(r"^https?://", "", cleaned)
+    cleaned = cleaned.split("/", 1)[0]
+    cleaned = cleaned.split(":", 1)[0]
+    cleaned = cleaned.lstrip("*.")
+    if not cleaned or cleaned.startswith("."):
+        return None
+    if domain:
+        domain_name = str(domain).strip().lower().rstrip(".")
+        if domain_name.startswith("*."):
+            domain_name = domain_name[2:]
+        if cleaned == domain_name or cleaned.endswith("." + domain_name):
+            return cleaned
+        return None
+    return cleaned
+
+
 def in_scope(name: str, domain: str) -> bool:
-    return name == domain or name.endswith("." + domain)
+    normalized = normalize_host_name(name, domain)
+    return bool(normalized)
+
+
+def dedupe_names(names, domain=None):
+    seen = set()
+    normalized = set()
+    for name in names or []:
+        candidate = normalize_host_name(name, domain)
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            normalized.add(candidate)
+    return normalized
 
 # ---------------------------------------------------------------------------
 # Passive discovery sources
@@ -135,21 +168,21 @@ def src_subfinder(scan_id, domain):
     code, out, err = run_command_live(scan_id, ["subfinder", "-d", domain, "-silent"], tool_name="subfinder")
     if code != 0:
         return set(), f"subfinder: exit {code}: {out[-300:]!r}"
-    return {x.strip().lower() for x in out.splitlines() if x.strip() and not x.startswith("{")}, None
+    return dedupe_names((x for x in out.splitlines() if x.strip() and not x.startswith("{")), domain), None
 
 
 def src_assetfinder(scan_id, domain):
     code, out, err = run_command_live(scan_id, ["assetfinder", "--subs-only", domain], tool_name="assetfinder")
     if code != 0:
         return set(), f"assetfinder: exit {code}: {out[-300:]!r}"
-    return {x.strip().lower() for x in out.splitlines() if x.strip()}, None
+    return dedupe_names((x for x in out.splitlines() if x.strip()), domain), None
 
 
 def src_findomain(scan_id, domain):
     code, out, err = run_command_live(scan_id, ["findomain", "-t", domain, "-q"], timeout=120, tool_name="findomain")
     if code != 0:
         return set(), f"findomain: exit {code}: {out[-300:]!r}"
-    return {x.strip().lower() for x in out.splitlines() if x.strip()}, None
+    return dedupe_names((x for x in out.splitlines() if x.strip()), domain), None
 
 
 def src_crtsh(scan_id, domain):
@@ -161,11 +194,11 @@ def src_crtsh(scan_id, domain):
             names = set()
             for row in data:
                 for name in row.get("name_value", "").splitlines():
-                    name = name.strip().lower().lstrip("*.")
-                    if in_scope(name, domain):
-                        names.add(name)
-                        r.rpush(f"scan:{scan_id}:live_logs", f"[crt.sh] {name}")
-            return names, None
+                    candidate = normalize_host_name(name, domain)
+                    if candidate:
+                        names.add(candidate)
+                        r.rpush(f"scan:{scan_id}:live_logs", f"[crt.sh] {candidate}")
+            return dedupe_names(names, domain), None
         except Exception as e:
             last_err = e
             time.sleep(2)
@@ -186,12 +219,10 @@ def src_gau(scan_id, domain):
             if not line.strip():
                 continue
             try:
-                # Normalize URL and extract hostname
-                host = re.sub(r"^https?://", "", line.strip()).split("/")[0].split(":")[0].lower()
+                host = normalize_host_name(line, domain)
             except Exception:
                 continue
-            host = host.lstrip("*.")
-            if in_scope(host, domain) and host not in names:
+            if host and host not in names:
                 names.add(host)
                 r.rpush(f"scan:{scan_id}:live_logs", f"[gau] {host}")
         return names, None
@@ -249,25 +280,27 @@ def run_passive_sources(scan_id, domain, selected_tools, errors):
             name = futures[future]
             try:
                 names, err = future.result()
-                all_assets.update(names)
                 if err:
                     errors.append(err)
+                if names:
+                    all_assets.update(dedupe_names(names, domain))
             except Exception:
                 errors.append(f"{name}: {traceback.format_exc(limit=3)}")
 
-    return all_assets
+    return dedupe_names(all_assets, domain)
 
 
-def run_dnsx(scan_id, subdomains, errors):
+def run_dnsx(scan_id, subdomains, errors, domain=None):
     if not subdomains:
         return {}, []
+    normalized = sorted(dedupe_names(subdomains, domain))
     in_file = SCAN_DIR / f"dnsx_{os.getpid()}_{time.time_ns()}.txt"
-    in_file.write_text("\n".join(subdomains) + "\n")
+    in_file.write_text("\n".join(normalized) + "\n")
     resolved = {}
     resolved_set = set()
     try:
         code, out, err = run_command_live(
-            scan_id, ["dnsx", "-l", str(in_file), "-a", "-resp", "-json", "-silent"], 
+            scan_id, ["dnsx", "-l", str(in_file), "-a", "-resp", "-json", "-silent"],
             timeout=180, tool_name="dnsx"
         )
         if code != 0:
@@ -277,7 +310,7 @@ def run_dnsx(scan_id, subdomains, errors):
                 continue
             try:
                 data = json.loads(line)
-                host = data.get("host")
+                host = normalize_host_name(data.get("host"), domain)
                 ips = data.get("a") or []
                 if host and ips:
                     resolved[host] = ips
@@ -289,7 +322,7 @@ def run_dnsx(scan_id, subdomains, errors):
     finally:
         in_file.unlink(missing_ok=True)
 
-    unresolved = sorted(set(subdomains) - resolved_set)
+    unresolved = sorted(set(normalized) - resolved_set)
     return resolved, unresolved
 
 
@@ -466,33 +499,59 @@ def run_nuclei(scan_id, live_hosts, errors):
 def run_katana(scan_id, live_hosts, errors, max_hosts=15, depth=2):
     if not live_hosts:
         return []
-    urls = [h.get("url") for h in live_hosts if h.get("url")][:max_hosts]
+    urls = []
+    seen = set()
+    for host in live_hosts:
+        url = host.get("url") or host.get("host")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        urls.append(url)
+    urls = urls[:max_hosts]
     if not urls:
         return []
     urls_file = SCAN_DIR / f"{scan_id}_katana_in.txt"
     urls_file.write_text("\n".join(urls) + "\n")
     endpoints = []
+    seen_urls = set()
     try:
         code, out, err = run_command_live(
-            scan_id, ["katana", "-list", str(urls_file), "-silent", "-jsonl", "-depth", str(depth), "-timeout", "10", "-c", "10"],
-            timeout=600, tool_name="katana"
+            scan_id,
+            ["katana", "-list", str(urls_file), "-silent", "-jsonl", "-depth", str(depth), "-timeout", "10", "-c", "10"],
+            timeout=600,
+            tool_name="katana",
         )
-        if code != 0:
+        if code not in (0, 1):
             errors.append(f"katana: exit {code}: {out[-300:]!r}")
         for line in out.splitlines():
             if not line.strip():
                 continue
             try:
                 data = json.loads(line)
-                endpoint_url = data.get("request", {}).get("endpoint") or data.get("endpoint")
-                if endpoint_url:
-                    endpoints.append({
-                        "url": endpoint_url,
-                        "method": data.get("request", {}).get("method", "GET"),
-                        "status": data.get("response", {}).get("status_code"),
-                    })
             except json.JSONDecodeError:
                 continue
+            if not isinstance(data, dict):
+                continue
+            endpoint_url = data.get("request", {}).get("endpoint") or data.get("endpoint") or data.get("url")
+            if not endpoint_url or not isinstance(endpoint_url, str):
+                continue
+            endpoint_url = endpoint_url.strip()
+            if not endpoint_url.startswith(("http://", "https://")):
+                continue
+            method = (data.get("request", {}) or {}).get("method") or data.get("method") or "GET"
+            status = (data.get("response", {}) or {}).get("status_code") or data.get("status")
+            if endpoint_url in seen_urls:
+                continue
+            seen_urls.add(endpoint_url)
+            endpoints.append({
+                "url": endpoint_url,
+                "method": str(method).upper(),
+                "status": status,
+            })
+    except FileNotFoundError:
+        errors.append("katana: not installed")
+    except TimeoutError:
+        errors.append("katana: timed out after 600s")
     except Exception:
         errors.append(f"katana: {traceback.format_exc(limit=3)}")
     finally:
@@ -667,73 +726,56 @@ def lookup_osv_cves(library, version, errors):
         return []
 
 
-def run_feroxbuster(scan_id, live_hosts, errors, max_hosts=10):
+def run_ffuf(scan_id, live_hosts, errors, max_hosts=10):
     hosts = [h.get("url") for h in live_hosts if h.get("url")][:max_hosts]
     if not hosts:
         return []
     directories = []
     for base_url in hosts:
         code, out, err = run_command_live(
-            scan_id, ["feroxbuster", "-u", base_url, "--silent", "--json", "-t", "20", "-d", "1", "-w", "/usr/local/share/wordlist-small.txt"],
-            timeout=300, tool_name="feroxbuster"
+            scan_id, ["ffuf", "-u", f"{base_url}/FUZZ", "-w", "/usr/local/share/wordlist-small.txt", "-fr", "-json", "-t", "20", "-ac"],
+            timeout=300, tool_name="ffuf"
         )
         if code != 0:
-            errors.append(f"feroxbuster({base_url}): exit {code}: {out[-300:]!r}")
+            errors.append(f"ffuf({base_url}): exit {code}: {out[-300:]!r}")
             continue
         for line in out.splitlines():
             if not line.strip():
                 continue
             try:
                 data = json.loads(line)
-                if data.get("type") == "response" and data.get("status", 0) < 400:
-                    directories.append({
-                        "path": data.get("url"),
-                        "status": data.get("status"),
-                        "size": data.get("content_length"),
-                    })
             except json.JSONDecodeError:
                 continue
+            if data.get("status") is None:
+                continue
+            if data.get("status", 0) < 400:
+                directories.append({
+                    "path": data.get("url") or data.get("input", {}).get("URL"),
+                    "status": data.get("status"),
+                    "size": data.get("length"),
+                })
     return directories
 
 
 def checkpoint_scan(scan_id, domain, tools, status, user_id=None, project_id=None, **fields):
     """Persist a partial scan without replacing fields written by earlier stages."""
-    if not supabase:
-        return
-    # Progress is intentionally kept in Redis: scans has no progress column,
-    # and Redis remains the live frontend state store.
     fields.pop("progress", None)
     payload = {"status": status, **fields}
-    # Do not send null ownership values: an incremental update must never
-    # erase identifiers that were written when the scan was created.
     if user_id is not None:
         payload["user_id"] = user_id
     if project_id is not None:
         payload["project_id"] = project_id
+    if domain is not None:
+        payload["domain"] = domain
+    if tools is not None:
+        payload["tools"] = list(tools) if isinstance(tools, (list, tuple, set)) else tools
     try:
-        existing = (
-            supabase.table("scans")
-            .select("scan_id")
-            .eq("scan_id", scan_id)
-            .limit(1)
-            .execute()
-        )
-        if existing.data:
-            supabase.table("scans").update(payload).eq("scan_id", scan_id).execute()
-        else:
-            # Keep this fallback for jobs queued by older API versions.
-            row = {
-                "scan_id": scan_id,
-                "domain": domain,
-                "tools": list(tools) if tools else [],
-                **payload,
-            }
-            supabase.table("scans").upsert(row, on_conflict="scan_id").execute()
+        db.upsert_scan(scan_id, **payload)
     except Exception:
-        print(f"[supabase] failed to persist scan {scan_id}: {traceback.format_exc(limit=3)}")
+        print(f"[sqlite] failed to persist scan {scan_id}: {traceback.format_exc(limit=3)}")
 
 
-def persist_to_supabase(scan_id, domain, tools, status, user_id=None, project_id=None, **fields):
+def persist_to_sqlite(scan_id, domain, tools, status, user_id=None, project_id=None, **fields):
     checkpoint_scan(
         scan_id,
         domain,
@@ -747,28 +789,10 @@ def persist_to_supabase(scan_id, domain, tools, status, user_id=None, project_id
 
 
 def diff_asset_history(project_id, current_subdomains, errors):
-    if not supabase or not project_id:
+    if not project_id:
         return [], []
-    now = datetime.now(timezone.utc).isoformat()
     try:
-        existing = (
-            supabase.table("asset_history")
-            .select("subdomain")
-            .eq("project_id", project_id)
-            .execute()
-        )
-        previously_known = {row["subdomain"] for row in existing.data}
-        current_set = set(current_subdomains)
-
-        added = sorted(current_set - previously_known)
-        removed = sorted(previously_known - current_set)
-
-        for s in current_set:
-            supabase.table("asset_history").upsert(
-                {"project_id": project_id, "subdomain": s, "last_seen": now},
-                on_conflict="project_id,subdomain",
-            ).execute()
-        return added, removed
+        return db.diff_asset_history(project_id, current_subdomains, errors)
     except Exception:
         errors.append(f"asset-history-diff: {traceback.format_exc(limit=3)}")
         return [], []
@@ -784,45 +808,14 @@ def diff_js_dependencies(project_id, detected_libs, errors):
         if cves:
             cve_findings.append({**lib, "cves": cves})
 
-    if not supabase or not project_id:
+    if not project_id:
         return detected_libs, cve_findings
 
-    now = datetime.now(timezone.utc).isoformat()
-    new_libs = []
     try:
-        existing = (
-            supabase.table("js_dependencies")
-            .select("library_name,library_version")
-            .eq("project_id", project_id)
-            .execute()
-        )
-        known = {(r["library_name"], r["library_version"]) for r in existing.data}
-
-        for lib in detected_libs:
-            key = (lib["library"], lib["version"])
-            if key not in known:
-                new_libs.append(lib)
-            matching_cves = next(
-                (f["cves"] for f in cve_findings
-                 if f["library"] == lib["library"] and f["version"] == lib["version"]),
-                [],
-            )
-            supabase.table("js_dependencies").upsert(
-                {
-                    "project_id": project_id,
-                    "script_url": lib["script"],
-                    "library_name": lib["library"],
-                    "library_version": lib["version"],
-                    "known_cves": matching_cves,
-                    "last_seen": now,
-                },
-                on_conflict="project_id,script_url",
-            ).execute()
+        return db.diff_js_dependencies(project_id, detected_libs, errors)
     except Exception:
         errors.append(f"js-deps-diff: {traceback.format_exc(limit=3)}")
         return detected_libs, cve_findings
-
-    return new_libs, cve_findings
 
 
 def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
@@ -884,7 +877,7 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
     resolved_map = {}
     unresolved = []
     if "dnsx" in tools:
-        resolved_map, unresolved = run_dnsx(scan_id, subdomains, errors)
+        resolved_map, unresolved = run_dnsx(scan_id, subdomains, errors, domain=domain)
     else:
         resolved_map = {s: [] for s in subdomains}
     update(scan_id, unresolved=json.dumps(unresolved), progress="30")
@@ -975,8 +968,8 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
     )
 
     directories = []
-    if "feroxbuster" in tools:
-        directories = run_feroxbuster(scan_id, live_hosts, errors)
+    if "ffuf" in tools:
+        directories = run_ffuf(scan_id, live_hosts, errors)
     update(scan_id, directories=json.dumps(directories), progress="97")
     checkpoint_scan(
         scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
@@ -990,7 +983,7 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
         errors=json.dumps(errors),
     )
 
-    persist_to_supabase(
+    persist_to_sqlite(
         scan_id, domain, tools, "completed",
         subdomains=subdomains, unresolved=unresolved, alive=live_hosts, ports=[],
         vulnerabilities=vulnerabilities, endpoints=endpoints,
