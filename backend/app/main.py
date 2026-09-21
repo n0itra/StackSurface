@@ -27,7 +27,7 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
 DEFAULT_TOOLS = ['subfinder', 'assetfinder', 'findomain', 'crt.sh', 'gau',
                  'dnsx', 'cdncheck', 'shodan', 'httpx']
 OPT_IN_TOOLS = {'nuclei', 'katana', 'arjun', 'trufflehog', 'jsluice',
-                'ffuf', 'permutations'}
+                'ffuf', 'permutations', 'dorking'}
 ALL_KNOWN_TOOLS = set(DEFAULT_TOOLS) | OPT_IN_TOOLS | {'anew'}
 JSON_FIELDS = ['subdomains', 'unresolved', 'alive', 'ports', 'vulnerabilities',
                'endpoints', 'secrets', 'directories', 'errors', 'added_assets',
@@ -243,6 +243,28 @@ def toggle_monitoring(project_id: str, monitoring: bool, user=Depends(require_us
 @app.get('/api/history')
 def scan_history(limit: int = 20, user=Depends(require_user), db_client=Depends(require_data_client)):
     return db_client.list_scans_for_user(user.id, limit)
+
+
+@app.post('/api/scans/{scan_id}/stop')
+def stop_scan(scan_id: str, user=Depends(require_user)):
+    data = r.hgetall(f'scan:{scan_id}')
+    if not data:
+        row = db.get_scan(scan_id)
+        if not row or row.get('user_id') != user.id:
+            raise HTTPException(status_code=404, detail='Scan not found')
+        data = row
+    elif data.get('user_id') != user.id:
+        raise HTTPException(status_code=404, detail='Scan not found')
+    r.hset(f'scan:{scan_id}', mapping={'status': 'stop_requested', 'stop_requested': '1'})
+    db.upsert_scan(
+        scan_id,
+        user_id=data.get('user_id'),
+        project_id=data.get('project_id'),
+        domain=data.get('domain'),
+        status='stop_requested',
+        stop_requested=True,
+    )
+    return {'ok': True, 'scan_id': scan_id, 'status': 'stop_requested'}
 
 
 @app.get('/', response_class=HTMLResponse)

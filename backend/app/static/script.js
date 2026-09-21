@@ -4,6 +4,7 @@ const tools = [
   {key:"assetfinder", icon:"◇", desc:"Find subdomains from multiple sources", tag:"Passive"},
   {key:"crt.sh", icon:"◉", desc:"Certificate transparency search", tag:"OSINT", url:"https://crt.sh/"},
   {key:"gau", icon:"🕘", desc:"Historical URLs (CommonCrawl, Wayback) via gau", tag:"Archive", url:"https://github.com/lc/gau"},
+  {key:"dorking", icon:"🔎", desc:"Passive public dorking for sensitive exposure clues (safe public discovery only)", tag:"OSINT"},
   {key:"anew", icon:"≋", desc:"Merge & deduplicate results", tag:"Cleanup"},
   {key:"dnsx", icon:"◆", desc:"Resolves each subdomain to an IP (unresolved ones are stored, not probed)", tag:"DNS"},
   {key:"cdncheck", icon:"◆", desc:"Flags CDN/WAF-fronted IPs before port lookup", tag:"DNS"},
@@ -20,19 +21,23 @@ const tools = [
 
 const stepMap = [
   ["subfinder","Subdomain Enumeration"],
-  ["gau","Historical URL Discovery (gau)"],
-  ["anew","Merge & Deduplicate"],
-  ["permutations","Permutation Generation & Resolution"],
+  ["findomain","Subdomain Enumeration (findomain)"],
+  ["assetfinder","Subdomain Enumeration (assetfinder)"],
+  ["crt.sh","Certificate Discovery (crt.sh)"],
   ["dnsx","DNS Resolution (dnsx)"],
+  ["httpx","Alive Host Detection (httpx)"],
+  ["gau","Historical URL Discovery (gau)"],
+  ["dorking","Dorking Discovery (dorking)"],
+  ["anew","Merge & Deduplicate"],
   ["cdncheck","CDN/WAF Detection (cdncheck)"],
   ["shodan","Open-Port Lookup (Shodan)"],
-  ["httpx","Alive Host Detection (httpx)"],
   ["katana","URL Discovery (katana)"],
   ["trufflehog","Secret Discovery (trufflehog)"],
   ["jsluice","JS Secret Analysis (jsluice)"],
   ["arjun","Parameter Discovery (arjun)"],
   ["nuclei","Vulnerability Scanning (nuclei)"],
-  ["ffuf","Directory Fuzzing (ffuf)"]
+  ["ffuf","Directory Fuzzing (ffuf)"],
+  ["permutations","Permutation Generation & Resolution"]
 ];
 
 function buildDatasets(scan) {
@@ -176,6 +181,7 @@ const domainInput = document.getElementById("domainInput");
 const statusDot = document.getElementById("statusDot");
 const scanStatus = document.getElementById("scanStatus");
 const selectAll = document.getElementById("selectAll");
+const stopScanBtn = document.getElementById("stopScanBtn");
 
 let currentStep = -1;
 let running = false;
@@ -327,6 +333,7 @@ async function runScan()  {
   activeScanDomain = domain;
   activeScan = {};
   startBtn.disabled = true;
+  if (stopScanBtn) { stopScanBtn.hidden = false; stopScanBtn.disabled = false; }
   startBtn.querySelector("span").textContent = "Running...";
   statusDot.classList.add("running");
   scanStatus.textContent = "Running";
@@ -400,17 +407,21 @@ async function runScan()  {
     // Keep the result view useful while the backend is still producing data.
     updateResultSnapshot(scan, domain);
 
-    if (scan.status === "completed" || scan.status === "failed") {
+    if (scan.status === "completed" || scan.status === "failed" || scan.status === "stopped") {
       stepMap.forEach(([key], idx) => {
         if (!selectedSet.has(key)) return;
-        setProgress(idx, "done", scan.status === "failed" ? "Finished with errors" : "Completed", "DONE");
+        if (scan.status === "stopped") {
+          setProgress(idx, "done", "Stopped", "STOP");
+        } else {
+          setProgress(idx, "done", scan.status === "failed" ? "Finished with errors" : "Completed", "DONE");
+        }
       });
       (scan.errors || []).forEach(e => appendLog(`Note: ${e}`));
 
       statusDot.classList.remove("running");
       statusDot.classList.add("done");
-      scanStatus.textContent = scan.status === "failed" ? "Failed" : "Completed";
-      appendLog(scan.status === "failed" ? "Scan finished with errors." : "Recon pipeline completed successfully.");
+      scanStatus.textContent = scan.status === "failed" ? "Failed" : scan.status === "stopped" ? "Stopped" : "Completed";
+      appendLog(scan.status === "failed" ? "Scan finished with errors." : scan.status === "stopped" ? "Scan stopped and partial results were saved." : "Recon pipeline completed successfully.");
       resetRunState();
       if (scan.status !== "failed" || (scan.subdomains || []).length) {
         goTo("results");
@@ -428,8 +439,24 @@ async function runScan()  {
 
 function resetRunState() {
   running = false;
+  if (stopScanBtn) stopScanBtn.hidden = true;
+  if (stopScanBtn) stopScanBtn.disabled = false;
   startBtn.disabled = false;
   startBtn.querySelector("span").textContent = "Start";
+}
+
+async function stopActiveScan() {
+  if (!activeScan || !activeScan.scan_id || !running) return;
+  stopScanBtn.disabled = true;
+  try {
+    const res = await api(`/api/scans/${activeScan.scan_id}/stop`, {method: "POST"});
+    if (!res.ok) throw new Error();
+    scanStatus.textContent = "Stopping";
+    appendLog("Stop requested ? worker will finish the current phase and persist partial results.");
+  } catch (error) {
+    appendLog("Could not request a stop for the active scan.");
+    stopScanBtn.disabled = false;
+  }
 }
 
 function goTo(page) {
@@ -455,11 +482,13 @@ function refreshResultTabs(scan, domain) {
   });
   document.getElementById("resultDomain").textContent = domain;
   const status = document.getElementById("resultScanStatus");
-  const isTerminal = scan.status === "completed" || scan.status === "failed";
-  status.className = `result-scan-status ${scan.status === "failed" ? "failed" : isTerminal ? "completed" : "running"}`;
+  const isTerminal = scan.status === "completed" || scan.status === "failed" || scan.status === "stopped";
+  status.className = `result-scan-status ${scan.status === "failed" ? "failed" : scan.status === "stopped" ? "stopped" : isTerminal ? "completed" : "running"}`;
   status.textContent = scan.status === "failed"
-    ? "Failed — partial results"
-    : isTerminal ? "Completed" : "Running — partial results";
+    ? "Failed ? partial results"
+    : scan.status === "stopped"
+      ? "Stopped ? partial results"
+      : isTerminal ? "Completed" : "Running ? partial results";
   document.querySelector(".scan-time").textContent = isTerminal
     ? "Scan Time: " + new Date().toLocaleString([], {dateStyle:"medium", timeStyle:"short"})
     : "Live update — scan in progress";
@@ -673,6 +702,7 @@ if (accessToken) {
 }
 
 startBtn.addEventListener("click", runScan);
+if (stopScanBtn) stopScanBtn.addEventListener("click", stopActiveScan);
 
 selectAll.addEventListener("change", e => {
   document.querySelectorAll(".tool-row input:not(:disabled)").forEach(i => i.checked = e.target.checked);

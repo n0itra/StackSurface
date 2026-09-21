@@ -1,4 +1,4 @@
-﻿import hashlib
+import hashlib
 import json
 import os
 import secrets
@@ -114,6 +114,7 @@ class SQLiteStore:
             status TEXT NOT NULL DEFAULT 'queued',
             tools TEXT,
             progress INTEGER NOT NULL DEFAULT 0,
+            stop_requested INTEGER NOT NULL DEFAULT 0,
             subdomains TEXT,
             unresolved TEXT,
             alive TEXT,
@@ -152,6 +153,9 @@ class SQLiteStore:
             conn = self._connect()
             try:
                 conn.executescript(schema)
+                conn.execute("ALTER TABLE scans ADD COLUMN stop_requested INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
             finally:
                 conn.close()
 
@@ -165,6 +169,8 @@ class SQLiteStore:
             if value is None:
                 return None
             return json_dumps(value)
+        if key == "stop_requested":
+            return int(bool(value))
         if isinstance(value, bool):
             return int(value)
         return value
@@ -186,6 +192,7 @@ class SQLiteStore:
                 parsed = json_loads(value)
                 data[key] = parsed if parsed is not None else []
         data["monitoring"] = bool(data.get("monitoring")) if "monitoring" in data else False
+        data["stop_requested"] = bool(data.get("stop_requested")) if "stop_requested" in data else False
         return data
 
     def _project_row_to_dict(self, row: Optional[sqlite3.Row]) -> Optional[Dict[str, Any]]:
@@ -410,6 +417,7 @@ class SQLiteStore:
                 data.setdefault("scan_id", scan_id)
                 data.setdefault("created_at", now)
                 data.setdefault("status", "queued")
+                data.setdefault("stop_requested", 0)
                 if "tools" in data and data.get("tools") is not None:
                     data["tools"] = json_dumps(data.get("tools") or [])
                 for key in ["subdomains", "unresolved", "alive", "ports", "vulnerabilities",
@@ -418,7 +426,7 @@ class SQLiteStore:
                     if key in data:
                         data[key] = self._normalize_scan_column(key, data.get(key))
                 if existing is None:
-                    columns = ["scan_id", "user_id", "project_id", "domain", "status", "tools", "progress",
+                    columns = ["scan_id", "user_id", "project_id", "domain", "status", "tools", "progress", "stop_requested",
                                 "subdomains", "unresolved", "alive", "ports", "vulnerabilities",
                                 "endpoints", "secrets", "directories", "errors", "added_assets",
                                 "removed_assets", "new_js_dependencies", "js_cve_findings", "created_at", "completed_at"]
@@ -428,7 +436,7 @@ class SQLiteStore:
                 else:
                     update_columns = []
                     params: List[Any] = []
-                    for key in ["user_id", "project_id", "domain", "status", "tools", "progress",
+                    for key in ["user_id", "project_id", "domain", "status", "tools", "progress", "stop_requested",
                                 "subdomains", "unresolved", "alive", "ports", "vulnerabilities",
                                 "endpoints", "secrets", "directories", "errors", "added_assets",
                                 "removed_assets", "new_js_dependencies", "js_cve_findings",
@@ -609,4 +617,3 @@ def validate_bearer_token(token: str) -> Optional[AttrDict]:
 
 def get_db() -> SQLiteStore:
     return sql_store
-

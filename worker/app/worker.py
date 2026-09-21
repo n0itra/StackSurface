@@ -9,6 +9,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote, urlparse
 
 import redis
 import httpx
@@ -31,6 +32,7 @@ CENSYS_API_ID = os.getenv("CENSYS_API_ID")
 CENSYS_API_SECRET = os.getenv("CENSYS_API_SECRET")
 NETLAS_API_KEY = os.getenv("NETLAS_API_KEY")
 C99_API_KEY = os.getenv("C99_API_KEY")
+MAX_SHODAN_REQUESTS = max(1, min(100, int(os.getenv("MAX_SHODAN_REQUESTS", "25"))))
 
 BLOCKED_TOOLS = set()
 
@@ -160,6 +162,99 @@ def dedupe_names(names, domain=None):
             normalized.add(candidate)
     return normalized
 
+
+def should_stop(scan_id):
+    raw = r.hget(f"scan:{scan_id}", "stop_requested") or r.get(f"scan:{scan_id}:stop") or "0"
+    return str(raw).strip().lower() in {"1", "true", "yes", "stop_requested", "stopped"}
+
+
+def record_stop(scan_id, user_id=None, project_id=None, domain=None, tools=None, errors=None, progress=None):
+    try:
+        r.set(f"scan:{scan_id}:stop", "1")
+        r.hset(f"scan:{scan_id}", mapping={"stop_requested": "1", "status": "stop_requested"})
+        if progress is not None:
+            r.hset(f"scan:{scan_id}", mapping={"progress": str(progress)})
+        db.upsert_scan(
+            scan_id,
+            user_id=user_id,
+            project_id=project_id,
+            domain=domain,
+            status="stop_requested",
+            stop_requested=True,
+            progress=progress,
+            errors=errors or [],
+            tools=list(tools or []) if tools is not None else None,
+        )
+    except Exception:
+        pass
+
+
+def finalize_stopped_scan(scan_id, domain, tools, user_id=None, project_id=None, errors=None, progress=None):
+    payload = errors or []
+    msg = "scan stopped by user request"
+    if payload and msg not in payload:
+        payload = payload + [msg]
+    elif not payload:
+        payload = [msg]
+    update(scan_id, status="stopped", progress=str(progress if progress is not None else 100), stop_requested="1", errors=json.dumps(payload))
+    checkpoint_scan(
+        scan_id, domain, tools, "stopped", user_id=user_id, project_id=project_id,
+        stop_requested=True, progress=progress if progress is not None else 100, errors=payload,
+    )
+    return True
+
+
+def normalize_http_url(value, domain=None):
+    if value is None:
+        return None
+    candidate = str(value).strip()
+    if not candidate:
+        return None
+    candidate = candidate.rstrip(".,;)")
+    candidate = candidate.rstrip("\"'")
+    if candidate.startswith("//"):
+        candidate = "https:" + candidate
+    if not re.match(r"^https?://", candidate, re.I):
+        candidate = "https://" + candidate if "." in candidate else candidate
+    try:
+        parsed = urlparse(candidate)
+    except Exception:
+        return None
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    host = parsed.hostname
+    if not host:
+        return None
+    host = host.lower().rstrip('.')
+    if domain:
+        domain_name = str(domain).strip().lower().rstrip('.')
+        if domain_name.startswith("*."):
+            domain_name = domain_name[2:]
+        if not (host == domain_name or host.endswith("." + domain_name)):
+            return None
+    try:
+        if not is_safe_target(host):
+            return None
+    except Exception:
+        return None
+    return parsed._replace(netloc=host if parsed.port is None else f"{host}:{parsed.port}").geturl()
+
+def normalize_httpx_targets(live_hosts, domain=None):
+    urls = []
+    seen = set()
+    for item in live_hosts or []:
+        candidate = None
+        if isinstance(item, dict):
+            candidate = item.get("url") or item.get("host")
+        else:
+            candidate = str(item)
+        normalized = normalize_http_url(candidate, domain)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            urls.append(normalized)
+    return urls
+
+
 # ---------------------------------------------------------------------------
 # Passive discovery sources
 # ---------------------------------------------------------------------------
@@ -232,6 +327,79 @@ def src_gau(scan_id, domain):
         return set(), f"gau: {e}"
 
 
+def run_gau(scan_id, domain, cleaned_targets, errors):
+    try:
+        code, out, err = run_command(["gau", domain], timeout=90)
+    except Exception as exc:
+        errors.append(f"gau: {exc}")
+        return []
+    if code != 0 and not out:
+        errors.append(f"gau: exit {code}: {err[-300:]!r}")
+        return []
+    urls = []
+    seen_urls = set()
+    normalized_targets = {normalize_http_url(item, domain) for item in cleaned_targets or [] if normalize_http_url(item, domain)}
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        normalized = normalize_http_url(line, domain)
+        if not normalized:
+            continue
+        if normalized_targets and normalized not in normalized_targets and not any(
+            urlparse(normalized).hostname == urlparse(t).hostname for t in normalized_targets
+        ):
+            continue
+        if normalized in seen_urls:
+            continue
+        seen_urls.add(normalized)
+        urls.append(normalized)
+        r.rpush(f"scan:{scan_id}:live_logs", f"[gau] {normalized}")
+    return urls
+
+
+def run_dorking(scan_id, domain, errors, max_results=20):
+    if not domain:
+        return []
+    query_terms = [
+        f'site:{domain} "login"',
+        f'site:{domain} "admin"',
+        f'site:{domain} "filetype:pdf"',
+        f'site:{domain} "internal"',
+    ]
+    findings = []
+    seen = set()
+    try:
+        for query in query_terms:
+            if should_stop(scan_id):
+                return findings
+            url = "https://duckduckgo.com/html/?q=" + quote(query, safe="")
+            with httpx.Client(timeout=15, follow_redirects=True, headers={"User-Agent": "StackSurface/1.0"}) as client:
+                resp = client.get(url)
+            if resp.status_code != 200:
+                continue
+            for match in re.findall(r'<a rel="nofollow" class="result-link" href="(.*?)"', resp.text):
+                decoded = match
+                try:
+                    decoded = str(match).replace('\x3F', '?')
+                except Exception:
+                    pass
+                normalized = normalize_http_url(decoded, domain)
+                if not normalized or normalized in seen:
+                    continue
+                seen.add(normalized)
+                findings.append({
+                    "type": "dorking",
+                    "location": normalized,
+                    "severity": "medium",
+                    "source": "duckduckgo",
+                })
+                if len(findings) >= max_results:
+                    return findings
+    except Exception as exc:
+        errors.append(f"dorking: {exc}")
+    return findings
+
+
 def write_subfinder_provider_config():
     config_dir = Path.home() / ".config" / "subfinder"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -266,7 +434,6 @@ PASSIVE_SOURCES = {
     "assetfinder": src_assetfinder,
     "findomain": src_findomain,
     "crt.sh": src_crtsh,
-    "gau": src_gau,
 }
 
 
@@ -400,25 +567,31 @@ def run_permutations(scan_id, domain, existing_subdomains, errors, max_permutati
     return new_resolved
 
 
-def shodan_host_ports(ips, errors):
+def shodan_host_ports(scan_id, ips, errors):
     if not SHODAN_API_KEY or not ips:
         return {}
     ports_by_ip = {}
+    limited_ips = list(dict.fromkeys(ips))[:MAX_SHODAN_REQUESTS]
     try:
         with httpx.Client(timeout=15) as client:
-            for ip in ips:
+            for ip in limited_ips:
+                if should_stop(scan_id):
+                    break
                 try:
                     resp = client.get(
                         f"https://api.shodan.io/shodan/host/{ip}",
                         params={"key": SHODAN_API_KEY},
                     )
                     if resp.status_code == 200:
-                        ports_by_ip[ip] = resp.json().get("ports", [])
-                    elif resp.status_code != 404: 
+                        payload = resp.json()
+                        ports = payload.get("ports") or []
+                        if ports:
+                            ports_by_ip[ip] = ports
+                    elif resp.status_code != 404:
                         errors.append(f"shodan-host({ip}): HTTP {resp.status_code}")
                 except Exception as e:
                     errors.append(f"shodan-host({ip}): {e}")
-                time.sleep(1) 
+                time.sleep(0.6)
     except Exception:
         errors.append(f"shodan-host: {traceback.format_exc(limit=3)}")
     return ports_by_ip
@@ -427,29 +600,40 @@ def shodan_host_ports(ips, errors):
 def run_httpx(scan_id, resolved, port_map, errors):
     if not resolved:
         return []
-
     lines = []
     for host, ips in resolved.items():
         ports = port_map.get(ips[0]) if ips else None
         if ports:
             lines.extend(f"{host}:{p}" for p in ports)
         else:
-            lines.append(host) 
-
+            lines.append(host)
+    if not lines:
+        return []
     targets_file = SCAN_DIR / f"{scan_id}_targets.txt"
     targets_file.write_text("\n".join(lines) + "\n")
     live = []
     try:
         code, out, err = run_command_live(
-            scan_id, ["httpx", "-l", str(targets_file), "-silent", "-json", "-status-code", "-title", "-tech-detect"],
-            timeout=600, tool_name="httpx"
+            scan_id,
+            ["httpx", "-l", str(targets_file), "-silent", "-json", "-status-code", "-title", "-tech-detect", "-timeout", "10", "-max-host-error", "3", "-no-color"],
+            timeout=600,
+            tool_name="httpx",
         )
         if code == 0:
             for line in out.splitlines():
                 if not line.strip():
                     continue
                 try:
-                    live.append(json.loads(line))
+                    data = json.loads(line)
+                    url = data.get("url") or data.get("host")
+                    if not url:
+                        continue
+                    parsed = normalize_http_url(url)
+                    if parsed:
+                        data["url"] = parsed
+                        if data.get("host") is None:
+                            data["host"] = urlparse(parsed).hostname
+                        live.append(data)
                 except json.JSONDecodeError:
                     continue
         else:
@@ -459,7 +643,6 @@ def run_httpx(scan_id, resolved, port_map, errors):
     finally:
         targets_file.unlink(missing_ok=True)
     return live
-
 
 def run_nuclei(scan_id, live_hosts, errors):
     if not live_hosts:
@@ -497,19 +680,10 @@ def run_nuclei(scan_id, live_hosts, errors):
 
 
 def run_katana(scan_id, live_hosts, errors, max_hosts=15, depth=2):
-    if not live_hosts:
-        return []
-    urls = []
-    seen = set()
-    for host in live_hosts:
-        url = host.get("url") or host.get("host")
-        if not url or url in seen:
-            continue
-        seen.add(url)
-        urls.append(url)
-    urls = urls[:max_hosts]
+    urls = normalize_httpx_targets(live_hosts)
     if not urls:
         return []
+    urls = urls[:max_hosts]
     urls_file = SCAN_DIR / f"{scan_id}_katana_in.txt"
     urls_file.write_text("\n".join(urls) + "\n")
     endpoints = []
@@ -517,8 +691,8 @@ def run_katana(scan_id, live_hosts, errors, max_hosts=15, depth=2):
     try:
         code, out, err = run_command_live(
             scan_id,
-            ["katana", "-list", str(urls_file), "-silent", "-jsonl", "-depth", str(depth), "-timeout", "10", "-c", "10"],
-            timeout=600,
+            ["katana", "-list", str(urls_file), "-silent", "-jsonl", "-depth", str(depth), "-timeout", "10", "-c", "10", "-headless"],
+            timeout=180,
             tool_name="katana",
         )
         if code not in (0, 1):
@@ -532,14 +706,15 @@ def run_katana(scan_id, live_hosts, errors, max_hosts=15, depth=2):
                 continue
             if not isinstance(data, dict):
                 continue
-            endpoint_url = data.get("request", {}).get("endpoint") or data.get("endpoint") or data.get("url")
+            req = data.get("request") if isinstance(data.get("request"), dict) else {}
+            endpoint_url = req.get("endpoint") or data.get("endpoint") or data.get("url")
             if not endpoint_url or not isinstance(endpoint_url, str):
                 continue
-            endpoint_url = endpoint_url.strip()
-            if not endpoint_url.startswith(("http://", "https://")):
+            endpoint_url = normalize_http_url(endpoint_url)
+            if not endpoint_url:
                 continue
-            method = (data.get("request", {}) or {}).get("method") or data.get("method") or "GET"
-            status = (data.get("response", {}) or {}).get("status_code") or data.get("status")
+            method = req.get("method") or data.get("method") or "GET"
+            status = (req.get("response") or {}).get("status_code") or data.get("response", {}).get("status_code") or data.get("status")
             if endpoint_url in seen_urls:
                 continue
             seen_urls.add(endpoint_url)
@@ -551,13 +726,12 @@ def run_katana(scan_id, live_hosts, errors, max_hosts=15, depth=2):
     except FileNotFoundError:
         errors.append("katana: not installed")
     except TimeoutError:
-        errors.append("katana: timed out after 600s")
+        errors.append("katana: timed out after 180s")
     except Exception:
         errors.append(f"katana: {traceback.format_exc(limit=3)}")
     finally:
         urls_file.unlink(missing_ok=True)
     return endpoints
-
 
 def url_host_is_safe(url):
     try:
@@ -818,12 +992,38 @@ def diff_js_dependencies(project_id, detected_libs, errors):
         return detected_libs, cve_findings
 
 
+def normalize_endpoint_candidates(*sources):
+    merged = []
+    seen = set()
+    for source in sources:
+        for item in source or []:
+            if isinstance(item, dict):
+                url = item.get("url") or item.get("endpoint")
+                method = item.get("method") or "GET"
+                status = item.get("status")
+            else:
+                url = item
+                method = "GET"
+                status = None
+            normalized = normalize_http_url(url)
+            if not normalized:
+                continue
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            merged.append({"url": normalized, "method": method or "GET", "status": status})
+    return merged
+
+
 def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
     errors = []
     tools = set(tools or [])
 
     update(scan_id, status="running", progress="5")
     checkpoint_scan(scan_id, domain, tools, "running", user_id=user_id, project_id=project_id, progress=5, errors=errors)
+
+    if should_stop(scan_id):
+        return finalize_stopped_scan(scan_id, domain, tools, user_id=user_id, project_id=project_id, errors=errors, progress=5)
 
     if not is_safe_target(domain):
         msg = f"refused: {domain} resolves to a disallowed address"
@@ -836,9 +1036,11 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
 
     blocked = sorted((tools & BLOCKED_TOOLS))
     for t in blocked:
-        errors.append(f"{t}: disabled — active exploit/payload development is not automated")
+        errors.append(f"{t}: disabled ? active exploit/payload development is not automated")
 
     update(scan_id, progress="8")
+    if should_stop(scan_id):
+        return finalize_stopped_scan(scan_id, domain, tools, user_id=user_id, project_id=project_id, errors=errors, progress=8)
     all_assets = run_passive_sources(scan_id, domain, tools, errors)
     all_assets.add(domain)
 
@@ -852,6 +1054,8 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
         scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
         subdomains=subdomains, progress=18, errors=errors,
     )
+    if should_stop(scan_id):
+        return finalize_stopped_scan(scan_id, domain, tools, user_id=user_id, project_id=project_id, errors=errors, progress=18)
 
     if "permutations" in tools:
         new_hosts = run_permutations(scan_id, domain, subdomains, errors)
@@ -862,6 +1066,8 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
         scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
         subdomains=subdomains, progress=25, errors=errors,
     )
+    if should_stop(scan_id):
+        return finalize_stopped_scan(scan_id, domain, tools, user_id=user_id, project_id=project_id, errors=errors, progress=25)
 
     added_assets, removed_assets = diff_asset_history(project_id, subdomains, errors)
     update(
@@ -885,6 +1091,8 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
         scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
         unresolved=unresolved, progress=30, errors=errors,
     )
+    if should_stop(scan_id):
+        return finalize_stopped_scan(scan_id, domain, tools, user_id=user_id, project_id=project_id, errors=errors, progress=30)
 
     cdn_by_ip = {}
     if "cdncheck" in tools:
@@ -893,33 +1101,58 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
         errors.append(f"cdncheck: {len(cdn_by_ip)} IP(s) identified as CDN/WAF-fronted")
 
     port_map = {}
-    if "shodan" in tools and resolved_map:
+    if "shodan" in tools and resolved_map and SHODAN_API_KEY:
         unique_ips = sorted({ip for ips in resolved_map.values() for ip in ips} - set(cdn_by_ip))
-        port_map = shodan_host_ports(unique_ips, errors)
-    update(scan_id, progress="35")
+        port_map = shodan_host_ports(scan_id, unique_ips, errors)
+    update(scan_id, ports=json.dumps(port_map), progress="35")
     checkpoint_scan(
         scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
-        progress=35, errors=errors,
+        ports=port_map, progress=35, errors=errors,
     )
+    if should_stop(scan_id):
+        return finalize_stopped_scan(scan_id, domain, tools, user_id=user_id, project_id=project_id, errors=errors, progress=35)
 
     live_hosts = []
     if "httpx" in tools:
         live_hosts = run_httpx(scan_id, resolved_map, port_map, errors)
+    normalized_live_urls = normalize_httpx_targets(live_hosts, domain)
     update(scan_id, alive=json.dumps(live_hosts), progress="40")
     checkpoint_scan(
         scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
         alive=live_hosts, progress=40, errors=errors,
     )
+    if should_stop(scan_id):
+        return finalize_stopped_scan(scan_id, domain, tools, user_id=user_id, project_id=project_id, errors=errors, progress=40)
+
+    gau_urls = []
+    if "gau" in tools:
+        gau_urls = run_gau(scan_id, domain, normalized_live_urls, errors)
+        if should_stop(scan_id):
+            return finalize_stopped_scan(scan_id, domain, tools, user_id=user_id, project_id=project_id, errors=errors, progress=45)
+    update(scan_id, progress="45")
+    checkpoint_scan(
+        scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
+        progress=45, errors=errors,
+    )
+
+    dorking = []
+    if "dorking" in tools:
+        dorking = run_dorking(scan_id, domain, errors)
+        if should_stop(scan_id):
+            return finalize_stopped_scan(scan_id, domain, tools, user_id=user_id, project_id=project_id, errors=errors, progress=50)
 
     vulnerabilities = []
-    endpoints = []
+    endpoints = normalize_endpoint_candidates(gau_urls, normalized_live_urls)
     if "katana" in tools:
-        endpoints = run_katana(scan_id, live_hosts, errors)
+        katana_endpoints = run_katana(scan_id, live_hosts, errors)
+        endpoints = normalize_endpoint_candidates(endpoints, katana_endpoints)
     update(scan_id, endpoints=json.dumps(endpoints), progress="60")
     checkpoint_scan(
         scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
         endpoints=endpoints, progress=60, errors=errors,
     )
+    if should_stop(scan_id):
+        return finalize_stopped_scan(scan_id, domain, tools, user_id=user_id, project_id=project_id, errors=errors, progress=60)
 
     if "nuclei" in tools:
         vulnerabilities.extend(run_nuclei(scan_id, live_hosts, errors))
@@ -928,9 +1161,12 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
         scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
         vulnerabilities=vulnerabilities, progress=75, errors=errors,
     )
+    if should_stop(scan_id):
+        return finalize_stopped_scan(scan_id, domain, tools, user_id=user_id, project_id=project_id, errors=errors, progress=75)
 
     if "arjun" in tools:
         endpoints.extend(run_arjun(endpoints, domain, errors))
+        endpoints = normalize_endpoint_candidates(endpoints)
         update(scan_id, endpoints=json.dumps(endpoints))
         checkpoint_scan(
             scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
@@ -940,6 +1176,8 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
     secrets = []
     new_js_deps = []
     js_cve_findings = []
+    if dorking:
+        secrets.extend(dorking)
     if "trufflehog" in tools or "jsluice" in tools or project_id:
         js_dir = download_js_files(endpoints, scan_id)
         try:
@@ -966,6 +1204,8 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
         secrets=secrets, new_js_dependencies=new_js_deps,
         js_cve_findings=js_cve_findings, progress=88, errors=errors,
     )
+    if should_stop(scan_id):
+        return finalize_stopped_scan(scan_id, domain, tools, user_id=user_id, project_id=project_id, errors=errors, progress=88)
 
     directories = []
     if "ffuf" in tools:
@@ -975,6 +1215,8 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
         scan_id, domain, tools, "running", user_id=user_id, project_id=project_id,
         directories=directories, progress=97, errors=errors,
     )
+    if should_stop(scan_id):
+        return finalize_stopped_scan(scan_id, domain, tools, user_id=user_id, project_id=project_id, errors=errors, progress=97)
 
     update(
         scan_id,
@@ -985,7 +1227,7 @@ def run_scan(scan_id, domain, tools, project_id=None, user_id=None):
 
     persist_to_sqlite(
         scan_id, domain, tools, "completed",
-        subdomains=subdomains, unresolved=unresolved, alive=live_hosts, ports=[],
+        subdomains=subdomains, unresolved=unresolved, alive=live_hosts, ports=port_map,
         vulnerabilities=vulnerabilities, endpoints=endpoints,
         secrets=secrets, directories=directories,
         added_assets=added_assets, removed_assets=removed_assets,
