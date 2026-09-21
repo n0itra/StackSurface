@@ -12,7 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 
 RUN useradd --create-home --shell /usr/sbin/nologin backend \
-    && chown -R backend:backend /app
+    && mkdir -p /data \
+    && chown -R backend:backend /app /data
 USER backend
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 \

@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from sqlite_store import get_db, validate_bearer_token
+from app.sqlite_store import get_db, validate_bearer_token
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('stacksurface.backend')

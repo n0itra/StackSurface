@@ -92,8 +92,8 @@ COPY resolvers-small.txt /usr/local/share/resolvers-small.txt
 COPY app ./app
 
 RUN useradd --create-home --shell /usr/sbin/nologin scanner \
-    && mkdir -p /scans \
-    && chown -R scanner:scanner /app /scans
+    && mkdir -p /scans /data \
+    && chown -R scanner:scanner /app /scans /data
 
 ENV HOME=/home/scanner
 
