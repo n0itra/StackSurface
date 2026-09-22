@@ -3,159 +3,58 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ReconX — Automated Reconnaissance</title>
+  <title>StackSurface — Automated Reconnaissance</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css" />
-  <!-- Supabase & Vis.js Libraries -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
-
-  <style>
-    /* Auth Overlay */
-    .auth-overlay {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(10, 15, 25, 0.85);
-      backdrop-filter: blur(8px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 9999;
-    }
-    .auth-card {
-      width: 100%;
-      max-width: 420px;
-      padding: 40px 32px;
-      background: var(--card-bg, #111827);
-      border-radius: 16px;
-      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      box-sizing: border-box;
-      display: flex;
-      flex-direction: column;
-    }
-    .auth-card input {
-      box-sizing: border-box;
-      width: 100%;
-      margin-bottom: 16px;
-      padding: 12px 16px;
-      border-radius: 8px;
-    }
-    .auth-buttons {
-      display: flex;
-      gap: 12px;
-      margin-top: 8px;
-    }
-    .auth-buttons button {
-      flex: 1;
-      padding: 12px;
-    }
-
-    /* Discord Box & Refresh */
-    .discord-row { max-width: 600px; margin: 12px auto 8px auto; }
-    .discord-input {
-      display: flex; align-items: center;
-      background: var(--input-bg, rgba(255, 255, 255, 0.03));
-      border: 1px solid rgba(88, 101, 242, 0.3);
-      border-radius: 8px; padding: 0 16px; height: 46px; transition: all 0.2s ease;
-    }
-    .discord-input:focus-within {
-      border-color: #5865F2; box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.15);
-      background: var(--input-bg, rgba(255, 255, 255, 0.06));
-    }
-    .discord-input input { flex: 1; background: transparent; border: none; color: inherit; outline: none; padding-left: 12px; font-size: 14px; }
-    
-    .refresh-row { max-width: 600px; margin: 0 auto 16px auto; display: flex; justify-content: flex-start; padding-left: 4px; }
-    .refresh-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #94a3b8; cursor: pointer; }
-    .refresh-toggle input { accent-color: #3b82f6; }
-    
-    .loading-row td { text-align: center; padding: 32px !important; color: #60758a; font-style: italic; }
-
-    /* Map Card */
-    .map-card {
-      padding: 0; 
-      height: 650px; 
-      border: 1px solid rgba(255, 255, 255, 0.08); 
-      overflow: hidden;
-      border-radius: 12px;
-    }
-    #networkGraph { width: 100%; height: 100%; background: #0b111e; outline: none; }
-    
-    /* Custom Wordlist */
-    .custom-wordlist-section {
-      margin-top: 16px; 
-      border-top: 1px solid rgba(255,255,255,0.08); 
-      padding-top: 16px;
-    }
-    .custom-wordlist-section h3 {
-      font-size: 14px; 
-      margin-bottom: 4px; 
-      color: #cbd5e1;
-      font-weight: 600;
-    }
-    .custom-wordlist-section p {
-      font-size: 12px; 
-      color: #64748b; 
-      margin-bottom: 10px;
-    }
-    .custom-wordlist-section textarea {
-      width: 100%; 
-      height: 80px; 
-      background: var(--input-bg, rgba(0,0,0,0.2)); 
-      border: 1px solid rgba(255,255,255,0.1); 
-      border-radius: 6px; 
-      color: #e2e8f0; 
-      padding: 10px; 
-      font-family: monospace; 
-      font-size: 13px;
-      resize: vertical;
-      box-sizing: border-box;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-    .custom-wordlist-section textarea:focus {
-      border-color: #3b82f6;
-    }
-  </style>
 </head>
 <body>
-  
-  <div id="authOverlay" class="auth-overlay">
-    <div class="card auth-card">
-      <div class="brand-mark" style="font-size: 36px; margin-bottom: 8px; text-align: center; color: #3b82f6;">✦</div>
-      <h2 style="text-align: center; margin-bottom: 24px; font-weight: 600;">Welcome to ReconX</h2>
-      <input id="authEmail" type="email" placeholder="Email address" />
-      <input id="authPassword" type="password" placeholder="Password" />
-      <div class="auth-buttons">
-        <button id="loginBtn" class="primary-btn">Login</button>
-        <button id="signupBtn" class="secondary-btn">Sign Up</button>
-      </div>
-      <p id="authMessage" style="color: #ef4444; text-align: center; margin-top: 16px; font-size: 13px; min-height: 20px;"></p>
-    </div>
-  </div>
-
-  <div class="app-shell" id="appContent" style="display: none;">
+  <div class="app-shell">
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark">✦</div>
-        <span>ReconX</span>
+        <span>StackSurface</span>
       </div>
       <nav class="nav">
         <button class="nav-link active" data-page="home">Home</button>
         <button class="nav-link" data-page="results">Results</button>
-        <button class="nav-link" data-page="history">History</button>
+        <button class="nav-link" data-page="profile">Profile</button>
       </nav>
       <div class="top-actions">
-        <span id="userEmailDisplay" style="font-size: 13px; color: #60758a; margin-right: 12px; font-weight: 500;"></span>
-        <button id="logoutBtn" class="ghost-btn" style="margin-right: 12px;">Logout</button>
+        <span id="userEmail" class="user-email"></span>
+        <button class="ghost-btn" id="logoutBtn" hidden>Log out</button>
         <button class="theme-switch" id="themeToggle" title="Toggle dark / light mode">☼ / ☾</button>
       </div>
     </header>
 
     <main>
-      <!-- HOME PAGE -->
+      <section id="authPage" class="auth-page">
+        <div class="card auth-card">
+          <h1>Welcome to StackSurface</h1>
+          <p>Sign in to keep your reconnaissance history private and synchronized.</p>
+          <form id="authForm">
+            <input id="authEmail" type="email" required autocomplete="email" placeholder="you@example.com" />
+            <input id="authPassword" type="password" required minlength="8" autocomplete="current-password" placeholder="Password (8+ characters)" />
+            <button class="primary-btn" type="submit" id="authSubmit">Sign in</button>
+          </form>
+          <button class="ghost-btn" id="authToggle" type="button">Create an account</button>
+          <p id="authMessage" role="alert"></p>
+        </div>
+      </section>
+
+      <section id="profilePage" class="page">
+        <div class="results-header"><div><h1>Profile</h1><p>Your private projects and scan history</p></div></div>
+        <div class="card table-card">
+          <div class="table-toolbar"><div class="table-heading"><h2>Projects</h2></div></div>
+          <div id="profileProjects" class="profile-list"></div>
+        </div>
+        <div class="card table-card">
+          <div class="table-toolbar"><div class="table-heading"><h2>Scan history</h2></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Domain</th><th>Status</th><th>Created</th><th>Project</th></tr></thead><tbody id="historyBody"></tbody></table></div>
+        </div>
+      </section>
+      <!-- HOME -->
       <section id="homePage" class="page active-page">
         <div class="hero">
           <div class="glow glow-left"></div>
@@ -163,26 +62,13 @@
           <h1>automated recon</h1>
           <p></p>
 
-          <div class="search-row" style="max-width: 600px; margin: 0 auto;">
-            <div class="domain-input" style="flex: 1;">
+          <div class="search-row">
+            <div class="domain-input">
               <span class="input-icon">◉</span>
-              <input id="domainInput" value="example.com" placeholder="example.com" style="width: 100%;" />
+              <input id="domainInput" value="example.com" placeholder="example.com" />
             </div>
             <button class="primary-btn" id="startBtn">▶ <span>Start</span></button>
-          </div>
-
-          <div class="refresh-row">
-            <label class="refresh-toggle">
-              <input type="checkbox" id="forceRefreshToggle" />
-              <span>Force New Scan (Ignore Cache)</span>
-            </label>
-          </div>
-
-          <div class="discord-row">
-            <div class="discord-input">
-              <span style="color: #5865F2; font-size: 18px;">💬</span>
-              <input id="webhookInput" type="url" placeholder="Discord Webhook URL (Optional for alerts)" />
-            </div>
+            <button class="secondary-btn" id="stopScanBtn" hidden>■ Stop scan</button>
           </div>
 
           <div class="project-row" id="projectRow">
@@ -190,6 +76,10 @@
               <option value="">No project (one-off scan)</option>
             </select>
             <button class="ghost-btn" id="newProjectBtn">+ New project</button>
+            <label class="monitor-toggle" id="monitorToggleWrap" style="display:none;">
+              <input type="checkbox" id="monitorToggle" />
+              <span>Monitor continuously</span>
+            </label>
           </div>
 
           <div class="card new-project-card" id="newProjectCard" style="display:none;">
@@ -197,7 +87,7 @@
             <input id="newProjectDomain" placeholder="domain.com" />
             <label class="monitor-toggle">
               <input type="checkbox" id="newProjectMonitor" />
-              <span>Monitor continuously</span>
+              <span>Monitor continuously (checks for new subdomains every 30 min)</span>
             </label>
             <div class="new-project-actions">
               <button class="secondary-btn" id="cancelProjectBtn">Cancel</button>
@@ -221,25 +111,12 @@
                   <span>Choose what the recon pipeline should run</span>
                 </div>
               </div>
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <button id="lightScanBtn" class="secondary-btn small">⚡ Light</button>
-                <button id="deepScanBtn" class="primary-btn small">🔥 Deep</button>
-                <label class="select-all" style="margin-left: 12px;">
-                  <input type="checkbox" id="selectAll" checked />
-                  <span>Select All</span>
-                </label>
-              </div>
+              <label class="select-all">
+                <input type="checkbox" id="selectAll" checked />
+                <span>Select All</span>
+              </label>
             </div>
-            
             <div id="toolsList" class="tools-list"></div>
-            
-            <!-- ميزة قوائم التخمين المخصصة (Custom Wordlist) -->
-            <div class="custom-wordlist-section">
-              <h3>Custom Wordlist (Optional)</h3>
-              <p>Enter paths separated by newlines. Overrides the default wordlist for Feroxbuster.</p>
-              <textarea id="customWordlistInput" placeholder="admin&#10;api/v2&#10;backup.zip&#10;.git/config"></textarea>
-            </div>
-
           </div>
 
           <div class="right-stack">
@@ -269,21 +146,20 @@
         </div>
       </section>
 
-      <!-- RESULTS PAGE -->
+      <!-- RESULTS -->
       <section id="resultsPage" class="page">
         <div class="results-header">
           <div>
             <button class="back-btn" data-page="home">←</button>
             <div class="results-title-block">
-              <h1 id="resultTitleH1">Scan Results</h1>
+              <h1>Scan Results</h1>
+              <span id="resultScanStatus" class="result-scan-status">No active scan</span>
               <p>Domain: <strong id="resultDomain">example.com</strong></p>
             </div>
           </div>
           <div class="results-actions">
-            <span class="scan-time" id="scanTimeDisplay">Scan Time: -</span>
+            <span class="scan-time">Scan Time: Sep 7, 2026 · 07:24 PM</span>
             <div>
-              <!-- زر التقرير الذكي الجديد تم إضافته هنا -->
-              <button id="aiReportBtn" class="primary-btn" style="background-color: #8b5cf6; border-color: #7c3aed; margin-right: 8px;">🤖 AI Report</button>
               <button class="secondary-btn" id="downloadBtn">⇩ Download Report</button>
               <button class="secondary-btn" data-page="home">↻ New Scan</button>
             </div>
@@ -291,31 +167,33 @@
         </div>
 
         <div class="result-tabs" id="resultTabs">
-          <button class="result-tab active" data-tab="subdomains">Subdomains <span>0</span></button>
-          <button class="result-tab" data-tab="network">🗺️ Network Map</button> 
-          <button class="result-tab" data-tab="alive">Alive Hosts <span>0</span></button>
+          <button class="result-tab active" data-tab="subdomains">Subdomains <span>147</span></button>
+          <button class="result-tab" data-tab="alive">Alive Hosts <span>89</span></button>
           <button class="result-tab" data-tab="changes">Changes <span>0</span></button>
-          <button class="result-tab" data-tab="endpoints">Endpoints <span>0</span></button>
-          <button class="result-tab" data-tab="secrets">Secrets <span>0</span></button>
+          <button class="result-tab" data-tab="endpoints">Endpoints <span>2,431</span></button>
+          <button class="result-tab" data-tab="secrets">Secrets <span>12</span></button>
           <button class="result-tab" data-tab="dependencies">Dependencies <span>0</span></button>
-          <button class="result-tab" data-tab="vulnerabilities">Vulnerabilities <span>0</span></button>
-          <button class="result-tab" data-tab="directories">Directories <span>0</span></button>
+          <button class="result-tab" data-tab="vulnerabilities">Vulnerabilities <span>36</span></button>
+          <button class="result-tab" data-tab="directories">Directories <span>320</span></button>
         </div>
 
-        <!-- Table View -->
-        <div class="card table-card" id="tableCard">
+        <div class="card table-card">
           <div class="table-toolbar">
             <div class="table-heading">
               <div class="title-icon">◎</div>
               <div>
                 <h2 id="tableTitle">Subdomains</h2>
-                <span id="tableSubtitle">Loading data...</span>
+                <span id="tableSubtitle">Total: 147 subdomains (after cleaning)</span>
               </div>
             </div>
             <div class="toolbar-actions">
               <div class="table-search">
                 <span>⌕</span>
-                <input id="tableSearch" placeholder="Search..." />
+                <input id="tableSearch" placeholder="Search subdomains..." />
+              </div>
+              <div id="statusFilter" class="status-filter" hidden>
+                <button id="statusFilterToggle" class="secondary-btn" type="button" aria-expanded="false">Statuses ▾</button>
+                <div id="statusFilterMenu" class="status-filter-menu" role="group" aria-label="Filter by status" hidden></div>
               </div>
               <button class="secondary-btn" id="exportBtn">⇩ Export</button>
             </div>
@@ -327,56 +205,15 @@
             </table>
           </div>
           <div class="table-footer">
-            <span id="rowSummary">Showing 0 results</span>
+            <span id="rowSummary">Showing 1 to 15 of 147 results</span>
             <div class="pagination" id="pagination"></div>
           </div>
         </div>
-
-        <!-- Network Map View -->
-        <div class="card map-card" id="mapCard" style="display: none;">
-          <div id="networkGraph"></div>
-        </div>
-
       </section>
-
-      <!-- HISTORY PAGE -->
-      <section id="historyPage" class="page">
-        <div class="results-header">
-          <div>
-            <div class="results-title-block">
-              <h1>Scan History</h1>
-              <p>Your previous reconnaissance scans</p>
-            </div>
-          </div>
-          <div class="results-actions">
-            <button class="secondary-btn" id="refreshHistoryBtn">↻ Refresh History</button>
-          </div>
-        </div>
-
-        <div class="card table-card">
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Target Domain</th>
-                  <th>Status</th>
-                  <th>Subdomains</th>
-                  <th>Vulnerabilities</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody id="historyTableBody">
-                <tr class="loading-row"><td colspan="6">Loading your scan history...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-      
     </main>
   </div>
 
   <script src="/static/script.js"></script>
+
 </body>
 </html>

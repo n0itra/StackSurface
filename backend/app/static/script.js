@@ -1,143 +1,44 @@
-// --- Supabase & Auth Setup ---
-const supabaseClient = supabase.createClient(window.__SUPABASE_URL__, window.__SUPABASE_ANON_KEY__);
-let currentSession = null;
-let currentScanData = null; 
-let networkInstance = null; 
-
-async function initAuth() {
-  const { data, error } = await supabaseClient.auth.getSession();
-  if (data.session) {
-    handleLoginSuccess(data.session);
-  } else {
-    document.getElementById("authOverlay").style.display = "flex";
-    document.getElementById("appContent").style.display = "none";
-  }
-
-  supabaseClient.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' && session) {
-      handleLoginSuccess(session);
-    } else if (event === 'SIGNED_OUT') {
-      currentSession = null;
-      document.getElementById("authOverlay").style.display = "flex";
-      document.getElementById("appContent").style.display = "none";
-      window.location.reload();
-    }
-  });
-}
-
-function handleLoginSuccess(session) {
-  currentSession = session;
-  document.getElementById("authOverlay").style.display = "none";
-  document.getElementById("appContent").style.display = "block";
-  document.getElementById("userEmailDisplay").textContent = session.user.email;
-  loadProjects();
-  loadHistory();
-}
-
-document.getElementById("loginBtn").addEventListener("click", async () => {
-  const email = document.getElementById("authEmail").value;
-  const password = document.getElementById("authPassword").value;
-  const msgEl = document.getElementById("authMessage");
-  
-  if (!email || !password) {
-    msgEl.textContent = "Please enter email and password.";
-    return;
-  }
-  msgEl.textContent = "Logging in...";
-  
-  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-  if (error) {
-    msgEl.textContent = error.message;
-  } else {
-    msgEl.textContent = "";
-  }
-});
-
-document.getElementById("signupBtn").addEventListener("click", async () => {
-  const email = document.getElementById("authEmail").value;
-  const password = document.getElementById("authPassword").value;
-  const msgEl = document.getElementById("authMessage");
-  
-  if (!email || !password) {
-    msgEl.textContent = "Please enter email and password.";
-    return;
-  }
-  msgEl.textContent = "Creating account...";
-  
-  const { data, error } = await supabaseClient.auth.signUp({ email, password });
-  if (error) {
-    msgEl.textContent = error.message;
-  } else {
-    msgEl.textContent = "Account created! You can now log in.";
-  }
-});
-
-document.getElementById("logoutBtn").addEventListener("click", async () => {
-  await supabaseClient.auth.signOut();
-});
-
-function api(url, options = {}) {
-  if (!currentSession) {
-    console.error("No active session found!");
-    return Promise.reject("No session");
-  }
-  
-  const headers = {
-    "Authorization": `Bearer ${currentSession.access_token}`,
-    ...(options.headers || {})
-  };
-  
-  return fetch(url, { ...options, headers })
-    .catch(err => {
-      console.error(`Network Error while fetching ${url}:`, err);
-      throw err;
-    });
-}
-
-// --- ترتيب الأدوات المنطقي الجديد (Kill Chain) ---
 const tools = [
-  {key:"subfinder", icon:"⌁", desc:"Passive subdomain enumeration", tag:"Passive"},
+  {key:"subfinder", icon:"⌁", desc:"Passive subdomain enumeration (auto-uses github/securitytrails/virustotal/censys/netlas/c99/urlscan/shodan keys if configured on the server)", tag:"Passive"},
   {key:"findomain", icon:"◎", desc:"Fast subdomain enumeration", tag:"Discovery"},
   {key:"assetfinder", icon:"◇", desc:"Find subdomains from multiple sources", tag:"Passive"},
   {key:"crt.sh", icon:"◉", desc:"Certificate transparency search", tag:"OSINT", url:"https://crt.sh/"},
-  {key:"gau", icon:"🕘", desc:"Fetch historical URLs (Archive & Wayback)", tag:"Archive"},
+  {key:"gau", icon:"🕘", desc:"Historical URLs (CommonCrawl, Wayback) via gau", tag:"Archive", url:"https://github.com/lc/gau"},
+  {key:"dorking", icon:"🔎", desc:"Passive public dorking for sensitive exposure clues (safe public discovery only)", tag:"OSINT"},
   {key:"anew", icon:"≋", desc:"Merge & deduplicate results", tag:"Cleanup"},
-  
-  {key:"permutations", icon:"⟲", desc:"Generates & resolves likely subdomain guesses", tag:"Active"},
-  {key:"dnsx", icon:"◆", desc:"Resolves each subdomain to an IP", tag:"DNS"},
+  {key:"dnsx", icon:"◆", desc:"Resolves each subdomain to an IP (unresolved ones are stored, not probed)", tag:"DNS"},
   {key:"cdncheck", icon:"◆", desc:"Flags CDN/WAF-fronted IPs before port lookup", tag:"DNS"},
-  {key:"shodan", icon:"•", desc:"Open-port lookup per resolved IP (requires API Key)", tag:"Network", apiKey:true},
-  
+  {key:"shodan", icon:"•", desc:"Open-port lookup per resolved IP (requires SHODAN_API_KEY)", tag:"Network", url:"https://www.shodan.io/", apiKey:true},
+  {key:"permutations", icon:"⟲", desc:"Generates & resolves likely subdomain guesses (high DNS volume)", tag:"Active"},
   {key:"httpx", icon:"↗", desc:"Alive host & technology detection", tag:"HTTP"},
-  
   {key:"katana", icon:"⌁", desc:"Web crawling & URL discovery", tag:"Crawler"},
-  {key:"feroxbuster", icon:"◫", desc:"Directory & file fuzzing", tag:"Fuzzing"},
-  
-  {key:"arjun", icon:"⟐", desc:"Parameter discovery", tag:"Params"},
-  {key:"jsluice", icon:"◍", desc:"AST-aware JS secret & endpoint analysis", tag:"Secrets"},
   {key:"trufflehog", icon:"◍", desc:"Regex/entropy-based secret scanning", tag:"Secrets"},
-  {key:"nuclei", icon:"⬢", desc:"Vulnerability scanning", tag:"Scanner"}
+  {key:"jsluice", icon:"◍", desc:"AST-aware JS secret & endpoint analysis", tag:"Secrets"},
+  {key:"arjun", icon:"⟐", desc:"Parameter discovery", tag:"Params"},
+  {key:"nuclei", icon:"⬢", desc:"Vulnerability scanning", tag:"Scanner"},
+  {key:"ffuf", icon:"◫", desc:"Directory & file fuzzing", tag:"Fuzzing"}
 ];
 
-// --- ترتيب خطوات التحميل في الواجهة بنفس المنطق ---
 const stepMap = [
   ["subfinder","Subdomain Enumeration"],
-  ["gau","Historical URL Discovery (gau)"],
-  ["anew","Merge & Deduplicate"],
-  ["permutations","Permutation Generation & Resolution"],
+  ["findomain","Subdomain Enumeration (findomain)"],
+  ["assetfinder","Subdomain Enumeration (assetfinder)"],
+  ["crt.sh","Certificate Discovery (crt.sh)"],
   ["dnsx","DNS Resolution (dnsx)"],
+  ["httpx","Alive Host Detection (httpx)"],
+  ["gau","Historical URL Discovery (gau)"],
+  ["dorking","Dorking Discovery (dorking)"],
+  ["anew","Merge & Deduplicate"],
   ["cdncheck","CDN/WAF Detection (cdncheck)"],
   ["shodan","Open-Port Lookup (Shodan)"],
-  ["httpx","Alive Host Detection (httpx)"],
   ["katana","URL Discovery (katana)"],
-  ["feroxbuster","Directory Fuzzing (feroxbuster)"],
-  ["arjun","Parameter Discovery (arjun)"],
-  ["jsluice","JS Secret Analysis (jsluice)"],
   ["trufflehog","Secret Discovery (trufflehog)"],
-  ["nuclei","Vulnerability Scanning (nuclei)"]
+  ["jsluice","JS Secret Analysis (jsluice)"],
+  ["arjun","Parameter Discovery (arjun)"],
+  ["nuclei","Vulnerability Scanning (nuclei)"],
+  ["ffuf","Directory Fuzzing (ffuf)"],
+  ["permutations","Permutation Generation & Resolution"]
 ];
-
-const lightScanTools = ["subfinder", "findomain", "assetfinder", "crt.sh", "gau", "anew", "dnsx", "cdncheck", "shodan", "httpx"];
 
 function buildDatasets(scan) {
   const subdomains = scan.subdomains || [];
@@ -151,7 +52,7 @@ function buildDatasets(scan) {
   return {
     subdomains: {
       title: "Subdomains",
-      subtitle: `Total: ${subdomains.length} subdomains — ${unresolved.size} with no IP`,
+      subtitle: `Total: ${subdomains.length} subdomains — ${unresolved.size} with no IP (stored only, not probed)`,
       search: "Search subdomains...",
       columns: ["#", "Subdomain", "Status", "Technology"],
       rows: subdomains.map((s, i) => {
@@ -183,7 +84,9 @@ function buildDatasets(scan) {
     },
     endpoints: {
       title: "Endpoints",
-      subtitle: `${(scan.endpoints || []).length} endpoints discovered`,
+      subtitle: scan.endpoints && scan.endpoints.length
+        ? `${scan.endpoints.length} endpoints discovered (katana / arjun)`
+        : "No endpoints yet — select katana and/or arjun for this scan",
       search: "Search endpoints...",
       columns: ["#", "Endpoint", "Method", "Status"],
       rows: (scan.endpoints || []).map((e, i) => [
@@ -193,7 +96,9 @@ function buildDatasets(scan) {
     },
     secrets: {
       title: "Secrets",
-      subtitle: `${(scan.secrets || []).length} potential secrets found`,
+      subtitle: scan.secrets && scan.secrets.length
+        ? `${scan.secrets.length} potential secrets found in discovered JS files`
+        : "No findings — select trufflehog and/or jsluice (requires katana for JS discovery)",
       search: "Search secret locations...",
       columns: ["#", "Type", "Location", "Severity"],
       rows: (scan.secrets || []).map((s, i) => [
@@ -204,7 +109,9 @@ function buildDatasets(scan) {
     },
     vulnerabilities: {
       title: "Vulnerabilities",
-      subtitle: `${vulnerabilities.length} template matches`,
+      subtitle: vulnerabilities.length
+        ? `${vulnerabilities.length} template matches from nuclei (detection only, not confirmed exploits)`
+        : "No nuclei findings (nuclei may not have been selected for this scan)",
       search: "Search vulnerabilities...",
       columns: ["#", "Finding", "Host", "Severity", "Confidence"],
       rows: vulnerabilities.map((v, i) => [
@@ -216,7 +123,12 @@ function buildDatasets(scan) {
     },
     changes: {
       title: "Changes",
-      subtitle: `${(scan.added_assets || []).length} new, ${(scan.removed_assets || []).length} removed since last scan`,
+      subtitle: (() => {
+        const added = (scan.added_assets || []).length;
+        const removed = (scan.removed_assets || []).length;
+        if (!added && !removed) return "No changes detected — either the first scan of this project, or nothing's changed since last time";
+        return `${added} new, ${removed} removed since last scan`;
+      })(),
       search: "Search changes...",
       columns: ["#", "Subdomain", "Change"],
       rows: [
@@ -227,7 +139,12 @@ function buildDatasets(scan) {
     },
     dependencies: {
       title: "Dependencies",
-      subtitle: `${(scan.new_js_dependencies || []).length} new JS libraries`,
+      subtitle: (() => {
+        const newCount = (scan.new_js_dependencies || []).length;
+        const cveCount = (scan.js_cve_findings || []).length;
+        if (!newCount && !cveCount) return "No new JS libraries detected, or no project linked for tracking";
+        return `${newCount} new librar${newCount === 1 ? "y" : "ies"}, ${cveCount} with known CVEs`;
+      })(),
       search: "Search dependencies...",
       columns: ["#", "Library", "Version", "Script", "CVEs"],
       rows: (scan.js_cve_findings && scan.js_cve_findings.length
@@ -241,7 +158,9 @@ function buildDatasets(scan) {
     },
     directories: {
       title: "Directories",
-      subtitle: `${(scan.directories || []).length} paths discovered`,
+      subtitle: scan.directories && scan.directories.length
+        ? `${scan.directories.length} paths discovered (ffuf)`
+        : "No results — select ffuf for this scan",
       search: "Search directories...",
       columns: ["#", "Path", "Status", "Size"],
       rows: (scan.directories || []).map((d, i) => [
@@ -253,22 +172,99 @@ function buildDatasets(scan) {
 }
 
 let datasets = buildDatasets({});
-let sortCol = -1;
-let sortAsc = true;
 
 const toolsList = document.getElementById("toolsList");
 const progressList = document.getElementById("progressList");
 const consoleEl = document.getElementById("console");
 const startBtn = document.getElementById("startBtn");
 const domainInput = document.getElementById("domainInput");
-const webhookInput = document.getElementById("webhookInput");
-const forceRefreshToggle = document.getElementById("forceRefreshToggle");
 const statusDot = document.getElementById("statusDot");
 const scanStatus = document.getElementById("scanStatus");
 const selectAll = document.getElementById("selectAll");
+const stopScanBtn = document.getElementById("stopScanBtn");
 
 let currentStep = -1;
 let running = false;
+let timers = [];
+let activeScan = null;
+let activeScanDomain = "example.com";
+
+let accessToken = localStorage.getItem("reconx-access-token");
+let refreshToken = localStorage.getItem("reconx-refresh-token");
+
+function api(url, options = {}) {
+  const headers = {...(options.headers || {})};
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  return fetch(url, { ...options, headers }).then(async response => {
+    if (response.status !== 401 || !refreshToken || url.startsWith("/api/auth/")) return response;
+    const refreshed = await fetch("/api/auth/refresh", {method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({refresh_token: refreshToken})});
+    if (!refreshed.ok) return response;
+    const data = await refreshed.json();
+    setAuthenticated(data.session, data.user);
+    return fetch(url, {...options, headers: {...(options.headers || {}), Authorization: `Bearer ${accessToken}`}});
+  })
+    .catch(err => {
+      // Catch network errors specifically (like backend down or CORS issues)
+      console.error(`Network Error while fetching ${url}:`, err);
+      throw err;
+    });
+}
+
+const authPage = document.getElementById("authPage");
+const authForm = document.getElementById("authForm");
+const authToggle = document.getElementById("authToggle");
+const authSubmit = document.getElementById("authSubmit");
+const authMessage = document.getElementById("authMessage");
+let signupMode = false;
+
+function setAuthenticated(session, user) {
+  accessToken = session?.access_token || accessToken;
+  refreshToken = session?.refresh_token || refreshToken;
+  if (accessToken) localStorage.setItem("reconx-access-token", accessToken);
+  if (refreshToken) localStorage.setItem("reconx-refresh-token", refreshToken);
+  authPage.style.display = "none";
+  document.querySelector("main").classList.remove("auth-required");
+  document.getElementById("userEmail").textContent = user?.email || "";
+  document.getElementById("logoutBtn").hidden = false;
+  loadProjects();
+}
+
+authToggle.addEventListener("click", () => {
+  signupMode = !signupMode;
+  authSubmit.textContent = signupMode ? "Create account" : "Sign in";
+  authToggle.textContent = signupMode ? "Already have an account? Sign in" : "Create an account";
+});
+authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  authMessage.textContent = "";
+  const endpoint = signupMode ? "/api/auth/signup" : "/api/auth/login";
+  try {
+    const response = await fetch(endpoint, {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({email: document.getElementById("authEmail").value,
+        password: document.getElementById("authPassword").value})});
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || "Authentication failed");
+    if (!data.session) {
+      authMessage.textContent = "Check your email to confirm your account, then sign in.";
+      signupMode = false;
+      authSubmit.textContent = "Sign in";
+      return;
+    }
+    setAuthenticated(data.session, data.user);
+  } catch (error) {
+    authMessage.textContent = error.message;
+  }
+});
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  await api("/api/auth/logout", {method: "POST"}).catch(() => {});
+  localStorage.removeItem("reconx-access-token");
+  localStorage.removeItem("reconx-refresh-token");
+  accessToken = null;
+  refreshToken = null;
+  location.reload();
+});
 
 function renderTools() {
   toolsList.innerHTML = tools.map((tool) => `
@@ -313,12 +309,6 @@ function setProgress(idx,state,meta,pct) {
 function appendLog(text) {
   const stamp = new Date().toLocaleTimeString([], {hour12:false});
   consoleEl.textContent += `[${stamp}] ${text}\n`;
-  
-  const lines = consoleEl.textContent.split('\n');
-  if (lines.length > 600) {
-    consoleEl.textContent = lines.slice(-600).join('\n') + '\n';
-  }
-  
   consoleEl.scrollTop = consoleEl.scrollHeight;
 }
 
@@ -333,82 +323,24 @@ function resetProgress() {
   scanStatus.textContent = "Idle";
 }
 
-function drawNetworkGraph(scanData) {
-  if (!scanData || !scanData.subdomains) return;
-  
-  const container = document.getElementById("networkGraph");
-  if (!container) return; 
-
-  const nodes = new vis.DataSet();
-  const edges = new vis.DataSet();
-  
-  const subdomains = scanData.subdomains.slice(0, 300);
-  const rootDomain = scanData.domain || "Target";
-  
-  nodes.add({ id: rootDomain, label: rootDomain, shape: "hexagon", color: "#3b82f6", font: {color: "#fff"}, size: 25 });
-  
-  const aliveByHost = {};
-  (scanData.alive || []).forEach(h => { if (h && h.host) aliveByHost[h.host] = h; });
-  
-  subdomains.forEach(sub => {
-    if (sub === rootDomain) return; 
-    const isAlive = !!aliveByHost[sub];
-    
-    nodes.add({ 
-      id: sub, 
-      label: sub, 
-      shape: "dot", 
-      size: isAlive ? 14 : 9,
-      color: isAlive ? "#10b981" : "#475569", 
-      font: {color: "#cbd5e1"} 
-    });
-    
-    edges.add({ from: rootDomain, to: sub, color: "#1e293b" });
-    
-    if (isAlive && aliveByHost[sub].a) {
-      aliveByHost[sub].a.slice(0, 2).forEach(ip => {
-        if (!nodes.get(ip)) {
-          nodes.add({ id: ip, label: ip, shape: "box", color: "#ef4444", font: {color: "#fff"}, size: 10 });
-        }
-        edges.add({ from: sub, to: ip, color: "#1e293b", dashes: true });
-      });
-    }
-  });
-  
-  const data = { nodes: nodes, edges: edges };
-  const options = {
-    physics: { barnesHut: { gravitationalConstant: -2000, centralGravity: 0.3, springLength: 100 } },
-    interaction: { hover: true, tooltipDelay: 200, zoomView: true, dragView: true }
-  };
-  
-  if (networkInstance) networkInstance.destroy(); 
-  networkInstance = new vis.Network(container, data, options);
-}
-
 async function runScan()  { 
   if(running) return;
   const domain = domainInput.value.trim() || "example.com";
-  const discordWebhook = webhookInput ? webhookInput.value.trim() : null; 
-  const forceRefresh = forceRefreshToggle ? forceRefreshToggle.checked : false;
   const selected = selectedToolKeys();
   const selectedSet = new Set(selected);
   const projectId = document.getElementById("projectSelect").value || null;
-  
-  const customWordlistEl = document.getElementById("customWordlistInput");
-  const customWordlist = customWordlistEl ? customWordlistEl.value.trim() : "";
-  
   running = true;
+  activeScanDomain = domain;
+  activeScan = {};
   startBtn.disabled = true;
+  if (stopScanBtn) { stopScanBtn.hidden = false; stopScanBtn.disabled = false; }
   startBtn.querySelector("span").textContent = "Running...";
   statusDot.classList.add("running");
   scanStatus.textContent = "Running";
   consoleEl.textContent = "";
-  
   appendLog(`Target accepted: ${domain}`);
-  if (forceRefresh) appendLog(`Force Refresh requested. Ignoring cached data.`);
-  if (discordWebhook) appendLog(`Custom Discord Webhook attached. Alerts enabled.`);
-  if (customWordlist && selected.includes("feroxbuster")) appendLog(`Custom wordlist provided for directory fuzzing.`);
   appendLog(`Selected tools: ${selected.join(", ") || "none"}`);
+  if (projectId) appendLog(`Linked to project — asset history & JS dependency tracking enabled.`);
 
   resetProgress();
   stepMap.forEach(([key], idx) => {
@@ -418,20 +350,11 @@ async function runScan()  {
   });
 
   let scanId;
-  let isCached = false;
-  
   try {
     const res = await api("/api/scans", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        domain, 
-        tools: selected, 
-        project_id: projectId,
-        discord_webhook: discordWebhook || undefined,
-        force_refresh: forceRefresh,
-        custom_wordlist: customWordlist || undefined 
-      }),
+      body: JSON.stringify({domain, tools: selected, project_id: projectId}),
     });
     
     if (!res.ok) {
@@ -442,13 +365,9 @@ async function runScan()  {
     }
     const data = await res.json();
     scanId = data.scan_id;
-    isCached = data.cached;
-    
-    if (isCached) {
-      appendLog(`Found recent cached scan for ${domain}. Displaying results instantly.`);
-    } else {
-      appendLog(`Scan queued (${scanId}).`);
-    }
+    activeScan = {scan_id: scanId, status: "running"};
+    updateResultSnapshot(activeScan, domain);
+    appendLog(`Scan queued (${scanId}).`);
   } catch (e) {
     appendLog(`Network error contacting backend. Make sure the server is running.`);
     resetRunState();
@@ -456,7 +375,7 @@ async function runScan()  {
   }
 
   const startedAt = Date.now();
-  const maxWaitMs = 60 * 60 * 1000; 
+  const maxWaitMs = 15 * 60 * 1000; 
   let lastProgress = -1;
   let lastLogIndex = 0; 
 
@@ -468,16 +387,15 @@ async function runScan()  {
       if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
       scan = await res.json();
     } catch (e) {
+      appendLog(`Polling error: ${e.message || "Failed to fetch progress"}`);
       continue;
     }
 
     const liveLogs = scan.live_logs || [];
     if (liveLogs.length > lastLogIndex) {
-        let chunk = "";
         for (let i = lastLogIndex; i < liveLogs.length; i++) {
-            chunk += `> ${liveLogs[i]}\n`;
+            appendLog(`> ${liveLogs[i]}`); 
         }
-        appendLog(chunk.trim()); 
         lastLogIndex = liveLogs.length;
     }
 
@@ -486,34 +404,25 @@ async function runScan()  {
       lastProgress = progress;
     }
 
-    currentScanData = scan;
-    datasets = buildDatasets(scan);
-    refreshResultTabs(scan, domain);
-    
-    if (!isCached) {
-      const activeTab = document.querySelector(".result-tab.active")?.dataset.tab || "subdomains";
-      if (activeTab === "network") {
-        drawNetworkGraph(currentScanData);
-      } else {
-        renderTable(activeTab);
-      }
-    }
+    // Keep the result view useful while the backend is still producing data.
+    updateResultSnapshot(scan, domain);
 
-    if (scan.status === "completed" || scan.status === "failed") {
+    if (scan.status === "completed" || scan.status === "failed" || scan.status === "stopped") {
       stepMap.forEach(([key], idx) => {
         if (!selectedSet.has(key)) return;
-        setProgress(idx, "done", scan.status === "failed" ? "Finished with errors" : "Completed", "DONE");
+        if (scan.status === "stopped") {
+          setProgress(idx, "done", "Stopped", "STOP");
+        } else {
+          setProgress(idx, "done", scan.status === "failed" ? "Finished with errors" : "Completed", "DONE");
+        }
       });
       (scan.errors || []).forEach(e => appendLog(`Note: ${e}`));
 
       statusDot.classList.remove("running");
       statusDot.classList.add("done");
-      scanStatus.textContent = scan.status === "failed" ? "Failed" : "Completed";
-      appendLog(scan.status === "failed" ? "Scan finished with errors." : "Recon pipeline completed successfully.");
-      
+      scanStatus.textContent = scan.status === "failed" ? "Failed" : scan.status === "stopped" ? "Stopped" : "Completed";
+      appendLog(scan.status === "failed" ? "Scan finished with errors." : scan.status === "stopped" ? "Scan stopped and partial results were saved." : "Recon pipeline completed successfully.");
       resetRunState();
-      loadHistory(); 
-      
       if (scan.status !== "failed" || (scan.subdomains || []).length) {
         goTo("results");
       }
@@ -530,8 +439,24 @@ async function runScan()  {
 
 function resetRunState() {
   running = false;
+  if (stopScanBtn) stopScanBtn.hidden = true;
+  if (stopScanBtn) stopScanBtn.disabled = false;
   startBtn.disabled = false;
   startBtn.querySelector("span").textContent = "Start";
+}
+
+async function stopActiveScan() {
+  if (!activeScan || !activeScan.scan_id || !running) return;
+  stopScanBtn.disabled = true;
+  try {
+    const res = await api(`/api/scans/${activeScan.scan_id}/stop`, {method: "POST"});
+    if (!res.ok) throw new Error();
+    scanStatus.textContent = "Stopping";
+    appendLog("Stop requested ? worker will finish the current phase and persist partial results.");
+  } catch (error) {
+    appendLog("Could not request a stop for the active scan.");
+    stopScanBtn.disabled = false;
+  }
 }
 
 function goTo(page) {
@@ -540,22 +465,33 @@ function goTo(page) {
   document.querySelectorAll(".nav-link").forEach(n => n.classList.toggle("active", n.dataset.page === page));
 }
 
+function updateResultSnapshot(scan, domain) {
+  activeScan = scan;
+  activeScanDomain = domain;
+  datasets = buildDatasets(scan);
+  refreshResultTabs(scan, domain);
+  renderTable(document.querySelector(".result-tab.active")?.dataset.tab || "subdomains");
+}
+
 function refreshResultTabs(scan, domain) {
-  document.querySelectorAll(".result-tab:not([data-tab='network'])").forEach(tab => {
+  document.querySelectorAll(".result-tab").forEach(tab => {
     const key = tab.dataset.tab;
     const total = (datasets[key] && datasets[key].total) || 0;
     const span = tab.querySelector("span");
     if (span) span.textContent = total.toLocaleString();
   });
-  
   document.getElementById("resultDomain").textContent = domain;
-  document.getElementById("resultTitleH1").textContent = scan.status === "running" ? "Live Results..." : "Scan Results";
-  
-  if (scan.completed_at || scan.status === "completed") {
-    document.getElementById("scanTimeDisplay").textContent = "Scan Time: " + new Date().toLocaleString([], {dateStyle:"medium", timeStyle:"short"});
-  } else {
-    document.getElementById("scanTimeDisplay").textContent = "Scan running...";
-  }
+  const status = document.getElementById("resultScanStatus");
+  const isTerminal = scan.status === "completed" || scan.status === "failed" || scan.status === "stopped";
+  status.className = `result-scan-status ${scan.status === "failed" ? "failed" : scan.status === "stopped" ? "stopped" : isTerminal ? "completed" : "running"}`;
+  status.textContent = scan.status === "failed"
+    ? "Failed ? partial results"
+    : scan.status === "stopped"
+      ? "Stopped ? partial results"
+      : isTerminal ? "Completed" : "Running ? partial results";
+  document.querySelector(".scan-time").textContent = isTerminal
+    ? "Scan Time: " + new Date().toLocaleString([], {dateStyle:"medium", timeStyle:"short"})
+    : "Live update — scan in progress";
 }
 
 function escapeHtml(value) {
@@ -567,45 +503,93 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function renderTable(tabKey, filter=""){
+const tableState = {
+  search: "",
+  page: 1,
+  pageSize: 15,
+  sort: {column: null, direction: "asc"},
+  statuses: new Set(),
+};
+
+function getProcessedRows(tabKey) {
   const data = datasets[tabKey];
-  if (!data) return; 
-  
-  document.getElementById("tableTitle").textContent = data.title;
-  document.getElementById("tableSubtitle").textContent = data.subtitle;
-  document.getElementById("tableSearch").placeholder = data.search;
-
-  // التعديل هنا: تصميم احترافي للأسهم (↕ افتراضي، ↑ تصاعدي، ↓ تنازلي)
-  document.getElementById("tableHead").innerHTML = `<tr>${data.columns.map((c, i) => {
-    let sortIcon = "↕"; // السهمين الافتراضيين
-    let iconColor = "#475569"; // لون باهت للعمود اللي مش مترتب
-    
-    if (sortCol === i) {
-      sortIcon = sortAsc ? "↑" : "↓"; // سهم طالع أو نازل
-      iconColor = "#3b82f6"; // لون أزرق مميز للعمود المترتب حالياً
-    }
-    
-    return `<th style="cursor: pointer; user-select: none; transition: background 0.2s;" onclick="sortTable(${i})" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
-      <div style="display: flex; align-items: center; justify-content: space-between;">
-        <span>${escapeHtml(c)}</span>
-        <span style="color: ${iconColor}; font-size: 14px; margin-left: 8px;">${sortIcon}</span>
-      </div>
-    </th>`;
-  }).join("")}</tr>`;
-  
-  const rows = data.rows.filter(r => r.join(" ").toLowerCase().includes(filter.toLowerCase()));
-  
-  if (rows.length === 0) {
-    document.getElementById("tableBody").innerHTML = `<tr class="loading-row"><td colspan="${data.columns.length}">No data found or still scanning...</td></tr>`;
-    document.getElementById("rowSummary").textContent = `Showing 0 results`;
-    document.getElementById("pagination").innerHTML = "";
-    return;
+  let rows = data.rows.slice();
+  if (tabKey === "alive" && tableState.statuses.size) {
+    rows = rows.filter(row => tableState.statuses.has(String(row[2])));
   }
+  if (tableState.search) {
+    const query = tableState.search.toLowerCase();
+    rows = rows.filter(row => row.join(" ").toLowerCase().includes(query));
+  }
+  if (tabKey === "alive" && tableState.sort.column !== null) {
+    const index = tableState.sort.column;
+    const direction = tableState.sort.direction === "asc" ? 1 : -1;
+    rows.sort((a, b) => {
+      const left = String(a[index] ?? "");
+      const right = String(b[index] ?? "");
+      if (index === 2) {
+        const leftNumber = Number(left);
+        const rightNumber = Number(right);
+        const leftValid = left !== "" && Number.isFinite(leftNumber);
+        const rightValid = right !== "" && Number.isFinite(rightNumber);
+        if (leftValid !== rightValid) return leftValid ? -1 : 1;
+        if (leftValid && leftNumber !== rightNumber) return (leftNumber - rightNumber) * direction;
+      } else {
+        const comparison = left.localeCompare(right, undefined, {numeric: true, sensitivity: "base"});
+        if (comparison) return comparison * direction;
+      }
+      return 0;
+    });
+  }
+  return rows;
+}
 
+function renderStatusFilter(data) {
+  const filter = document.getElementById("statusFilter");
+  if (!filter) return;
+  const isAlive = data.title === "Alive Hosts";
+  filter.hidden = !isAlive;
+  if (!isAlive) return;
+  const statuses = [...new Set(data.rows.map(row => String(row[2])))].sort((a, b) => {
+    const an = Number(a), bn = Number(b);
+    if (Number.isFinite(an) && Number.isFinite(bn)) return an - bn;
+    if (Number.isFinite(an)) return -1;
+    if (Number.isFinite(bn)) return 1;
+    return a.localeCompare(b);
+  });
+  tableState.statuses.forEach(status => {
+    if (!statuses.includes(status)) tableState.statuses.delete(status);
+  });
+  const menu = document.getElementById("statusFilterMenu");
+  menu.innerHTML = `<label class="status-filter-option"><input type="checkbox" data-status-all ${
+    tableState.statuses.size === 0 ? "checked" : ""
+  }>All statuses</label>${statuses.map(status => `<label class="status-filter-option"><input type="checkbox" data-status="${escapeHtml(status)}" ${
+    tableState.statuses.has(status) ? "checked" : ""
+  }>${escapeHtml(status)}</label>`).join("")}<button type="button" class="ghost-btn" data-status-reset>Clear/reset</button>`;
+  document.getElementById("statusFilterToggle").textContent = tableState.statuses.size
+    ? `Statuses (${tableState.statuses.size}) ▾` : "Statuses ▾";
+}
+
+function renderTable(tabKey){
+  const data = datasets[tabKey];
+  document.getElementById("tableTitle").textContent = data.title;
+  renderStatusFilter(data);
+  document.getElementById("tableSearch").placeholder = data.search;
+  const sortable = tabKey === "alive";
+  document.getElementById("tableHead").innerHTML = `<tr>${data.columns.map((column, index) => {
+    if (!sortable || index === 0) return `<th>${escapeHtml(column)}</th>`;
+    const active = tableState.sort.column === index;
+    const ariaSort = active ? (tableState.sort.direction === "asc" ? "ascending" : "descending") : "none";
+    return `<th class="sortable" aria-sort="${ariaSort}"><button type="button" data-sort-column="${index}">${escapeHtml(column)}</button></th>`;
+  }).join("")}</tr>`;
+  const filteredRows = getProcessedRows(tabKey);
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / tableState.pageSize));
+  tableState.page = Math.min(tableState.page, pageCount);
+  const start = (tableState.page - 1) * tableState.pageSize;
+  const rows = filteredRows.slice(start, start + tableState.pageSize);
   document.getElementById("tableBody").innerHTML = rows.map(row => {
     return `<tr>${row.map((cell,i)=>{
       const safeCell = escapeHtml(cell);
-      // دي الجزئية اللي بتحافظ على شكل وحجم بادج الـ Status بدون تغيير
       if(data.columns[i] === "Status"){
         const cls = cell==="200" ? "b200" : cell==="403" ? "b403" : cell==="302" || cell==="301" ? "b302" : "b404";
         return `<td><span class="badge ${cls}">${safeCell}</span></td>`;
@@ -618,111 +602,16 @@ function renderTable(tabKey, filter=""){
       return `<td>${safeCell}</td>`;
     }).join("")}</tr>`;
   }).join("");
-  
-  document.getElementById("rowSummary").textContent = `Showing 1 to ${rows.length > 50 ? 50 : rows.length} of ${data.total} results`;
-  document.getElementById("pagination").innerHTML = [1,2,3,4,5,"…",10].map((n,i)=>
-    `<button class="page-btn ${i===0?"active":""}">${n}</button>`).join("");
+  const first = filteredRows.length ? start + 1 : 0;
+  const last = Math.min(start + rows.length, filteredRows.length);
+  document.getElementById("rowSummary").textContent = `Showing ${first} to ${last} of ${filteredRows.length} results`;
+  document.getElementById("tableSubtitle").textContent = tabKey === "alive"
+    ? `${filteredRows.length} of ${data.total} responsive hosts discovered`
+    : data.subtitle;
+  document.getElementById("pagination").innerHTML = Array.from({length: pageCount}, (_, i) => i + 1).map(page =>
+    `<button type="button" class="page-btn ${page === tableState.page ? "active" : ""}" data-page="${page}">${page}</button>`).join("");
 }
 
-// الإضافة: دالة ترتيب الجدول
-window.sortTable = function(colIndex) {
-  const activeTab = document.querySelector(".result-tab.active").dataset.tab;
-  const data = datasets[activeTab];
-  if (!data) return;
-
-  if (sortCol === colIndex) {
-    sortAsc = !sortAsc;
-  } else {
-    sortCol = colIndex;
-    sortAsc = true;
-  }
-
-  data.rows.sort((a, b) => {
-    let valA = a[colIndex] || "";
-    let valB = b[colIndex] || "";
-    
-    valA = String(valA).replace(/(<([^>]+)>)/gi, "");
-    valB = String(valB).replace(/(<([^>]+)>)/gi, "");
-
-    let numA = parseFloat(valA);
-    let numB = parseFloat(valB);
-
-    if (!isNaN(numA) && !isNaN(numB)) {
-      return sortAsc ? numA - numB : numB - numA;
-    }
-    
-    return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
-  });
-
-  renderTable(activeTab, document.getElementById("tableSearch").value);
-};
-
-async function loadHistory() {
-  const tbody = document.getElementById("historyTableBody");
-  try {
-    const res = await api("/api/history");
-    if (!res.ok) throw new Error("Failed to load history");
-    const history = await res.json();
-    
-    if (history.length === 0) {
-      tbody.innerHTML = `<tr class="loading-row"><td colspan="6">No scans found in your history.</td></tr>`;
-      return;
-    }
-    
-    tbody.innerHTML = history.map(item => {
-      const date = item.completed_at ? new Date(item.completed_at).toLocaleString([], {dateStyle:"medium", timeStyle:"short"}) : "Running...";
-      const isCompleted = item.status === "completed";
-      const statusClass = isCompleted ? "b200" : item.status === "failed" ? "b404" : "b302";
-      
-      const subsCount = item.subdomains_count ?? 0;
-      const vulnsCount = item.vulnerabilities_count ?? 0;
-      const vulnClass = vulnsCount > 0 ? "color: #ef4444; font-weight: bold;" : "color: #60758a;";
-      
-      return `<tr>
-        <td>${escapeHtml(date)}</td>
-        <td style="font-weight: 500;">${escapeHtml(item.domain)}</td>
-        <td><span class="badge ${statusClass}">${escapeHtml(item.status)}</span></td>
-        <td style="font-weight: 500; color: #3b82f6;">${subsCount}</td>
-        <td style="${vulnClass}">${vulnsCount}</td>
-        <td>
-          <button class="secondary-btn small" onclick="loadScanFromHistory('${escapeHtml(item.scan_id)}')">View</button>
-        </td>
-      </tr>`;
-    }).join("");
-    
-  } catch (e) {
-    tbody.innerHTML = `<tr class="loading-row"><td colspan="6">Failed to load history.</td></tr>`;
-  }
-}
-
-window.loadScanFromHistory = async function(scanId) {
-  try {
-    const res = await api(`/api/scans/${scanId}`);
-    if (!res.ok) throw new Error("Scan not found");
-    const scan = await res.json();
-    
-    currentScanData = scan;
-    datasets = buildDatasets(scan);
-    refreshResultTabs(scan, scan.domain);
-    
-    document.querySelectorAll(".result-tab").forEach(t => t.classList.remove("active"));
-    document.querySelector(".result-tab[data-tab='subdomains']").classList.add("active");
-    
-    const tableCard = document.getElementById("tableCard");
-    const mapCard = document.getElementById("mapCard");
-    if (tableCard) tableCard.style.display = "block";
-    if (mapCard) mapCard.style.display = "none";
-    
-    renderTable("subdomains");
-    goTo("results");
-  } catch (e) {
-    alert("Could not load scan details.");
-  }
-};
-
-document.getElementById("refreshHistoryBtn").addEventListener("click", loadHistory);
-
-// --- Events Setup ---
 renderTools();
 renderProgress();
 renderTable("subdomains");
@@ -730,16 +619,42 @@ document.getElementById("workspace").classList.add("collapsed");
 
 async function loadProjects() {
   const select = document.getElementById("projectSelect");
+  if (!accessToken) return;
   try {
     const res = await api("/api/projects");
-    if (!res.ok) return; 
+    if (res.status === 401) {
+      localStorage.removeItem("reconx-access-token");
+      localStorage.removeItem("reconx-refresh-token");
+      accessToken = null;
+      refreshToken = null;
+      authPage.style.display = "flex";
+      return;
+    }
+    if (!res.ok) return;
     const projects = await res.json();
+    renderProfileProjects(projects);
     const current = select.value;
     select.innerHTML = '<option value="">No project (one-off scan)</option>' +
       projects.map(p => `<option value="${escapeHtml(p.project_id)}">${escapeHtml(p.name)} — ${escapeHtml(p.domain)}${p.monitoring ? " 🟢" : ""}</option>`).join("");
     select.value = current;
   } catch (e) {
-    console.warn("Could not load projects.");
+    console.warn("Could not load projects (Backend/Supabase unreachable).");
+  }
+
+  function renderProfileProjects(projects) {
+    const target = document.getElementById("profileProjects");
+    if (target) target.innerHTML = projects.length
+      ? projects.map(p => `<div class="profile-item"><strong>${escapeHtml(p.name)}</strong> — ${escapeHtml(p.domain)} ${p.monitoring ? "🟢 Monitoring" : ""}</div>`).join("")
+      : "<p>No projects yet.</p>";
+  }
+
+  async function loadHistory() {
+    if (!accessToken) return;
+    const response = await api("/api/history");
+    if (!response.ok) return;
+    const rows = await response.json();
+    const body = document.getElementById("historyBody");
+    body.innerHTML = rows.length ? rows.map(row => `<tr><td>${escapeHtml(row.domain)}</td><td>${escapeHtml(row.status)}</td><td>${escapeHtml(new Date(row.created_at).toLocaleString())}</td><td>${escapeHtml(row.project_id || "One-off")}</td></tr>`).join("") : '<tr><td colspan="4">No scans yet.</td></tr>';
   }
 }
 
@@ -779,21 +694,15 @@ document.getElementById("saveProjectBtn").addEventListener("click", async () => 
   }
 });
 
-startBtn.addEventListener("click", runScan);
+if (accessToken) {
+  authPage.style.display = "none";
+  loadProjects();
+} else {
+  authPage.style.display = "flex";
+}
 
-// Presets
-document.getElementById("lightScanBtn").addEventListener("click", () => {
-  document.querySelectorAll(".tool-row input:not(:disabled)").forEach(checkbox => {
-    checkbox.checked = lightScanTools.includes(checkbox.dataset.tool);
-  });
-  selectAll.checked = false;
-});
-document.getElementById("deepScanBtn").addEventListener("click", () => {
-  document.querySelectorAll(".tool-row input:not(:disabled)").forEach(checkbox => {
-    checkbox.checked = true;
-  });
-  selectAll.checked = true;
-});
+startBtn.addEventListener("click", runScan);
+if (stopScanBtn) stopScanBtn.addEventListener("click", stopActiveScan);
 
 selectAll.addEventListener("change", e => {
   document.querySelectorAll(".tool-row input:not(:disabled)").forEach(i => i.checked = e.target.checked);
@@ -808,7 +717,10 @@ toolsList.addEventListener("change", e => {
 document.querySelectorAll(".nav-link,[data-page]").forEach(btn => {
   btn.addEventListener("click", () => {
     const page = btn.dataset.page;
-    if(page) goTo(page);
+    if(page) {
+      goTo(page);
+      if (page === "profile") loadHistory().catch(() => {});
+    }
   });
 });
 
@@ -836,8 +748,9 @@ document.getElementById("clearConsole").addEventListener("click", ()=>{
 });
 
 document.getElementById("tableSearch").addEventListener("input", e=>{
-  const active = document.querySelector(".result-tab.active").dataset.tab;
-  if(active !== "network") renderTable(active,e.target.value);
+  tableState.search = e.target.value.trim();
+  tableState.page = 1;
+  renderTable(document.querySelector(".result-tab.active").dataset.tab);
 });
 
 document.querySelectorAll(".result-tab").forEach(tab => {
@@ -845,32 +758,73 @@ document.querySelectorAll(".result-tab").forEach(tab => {
     document.querySelectorAll(".result-tab").forEach(t=>t.classList.remove("active"));
     tab.classList.add("active");
     document.getElementById("tableSearch").value = "";
-    // تصفير مؤشر الترتيب عند تغيير التاب
-    sortCol = -1;
-    sortAsc = true;
-    
-    const targetTab = tab.dataset.tab;
-    const tableCard = document.getElementById("tableCard");
-    const mapCard = document.getElementById("mapCard");
-    
-    if (targetTab === "network") {
-      if(tableCard) tableCard.style.display = "none";
-      if(mapCard) mapCard.style.display = "block";
-      setTimeout(() => drawNetworkGraph(currentScanData), 50); 
-    } else {
-      if(tableCard) tableCard.style.display = "block";
-      if(mapCard) mapCard.style.display = "none";
-      renderTable(targetTab);
-    }
+    tableState.search = "";
+    tableState.page = 1;
+    tableState.sort = {column: null, direction: "asc"};
+    tableState.statuses.clear();
+    document.getElementById("statusFilterMenu").hidden = true;
+    document.getElementById("statusFilterToggle").setAttribute("aria-expanded", "false");
+    renderTable(tab.dataset.tab);
   });
+});
+
+document.getElementById("tableHead").addEventListener("click", event => {
+  const button = event.target.closest("[data-sort-column]");
+  if (!button) return;
+  const column = Number(button.dataset.sortColumn);
+  if (tableState.sort.column === column) {
+    tableState.sort.direction = tableState.sort.direction === "asc" ? "desc" : "asc";
+  } else {
+    tableState.sort = {column, direction: "asc"};
+  }
+  tableState.page = 1;
+  renderTable("alive");
+});
+
+document.getElementById("pagination").addEventListener("click", event => {
+  const button = event.target.closest("[data-page]");
+  if (!button) return;
+  tableState.page = Number(button.dataset.page);
+  renderTable(document.querySelector(".result-tab.active").dataset.tab);
+});
+
+document.getElementById("statusFilterToggle").addEventListener("click", () => {
+  const menu = document.getElementById("statusFilterMenu");
+  const open = menu.hidden !== true;
+  menu.hidden = open;
+  document.getElementById("statusFilterToggle").setAttribute("aria-expanded", String(!open));
+});
+document.getElementById("statusFilterMenu").addEventListener("change", event => {
+  if (!event.target.matches("input")) return;
+  if (event.target.hasAttribute("data-status-all")) {
+    tableState.statuses.clear();
+  } else {
+    const status = event.target.dataset.status;
+    if (event.target.checked) tableState.statuses.add(status);
+    else tableState.statuses.delete(status);
+  }
+  tableState.page = 1;
+  renderTable("alive");
+  document.getElementById("statusFilterMenu").hidden = false;
+});
+document.getElementById("statusFilterMenu").addEventListener("click", event => {
+  if (!event.target.matches("[data-status-reset]")) return;
+  tableState.statuses.clear();
+  tableState.page = 1;
+  renderTable("alive");
+});
+document.addEventListener("click", event => {
+  const filter = document.getElementById("statusFilter");
+  if (filter && !filter.hidden && !filter.contains(event.target)) {
+    document.getElementById("statusFilterMenu").hidden = true;
+    document.getElementById("statusFilterToggle").setAttribute("aria-expanded", "false");
+  }
 });
 
 document.getElementById("exportBtn").addEventListener("click", ()=>{
   const active = document.querySelector(".result-tab.active").dataset.tab;
-  if (active === "network") return alert("Can't export map directly to CSV. Export a table instead.");
-  
   const data = datasets[active];
-  const csv = [data.columns.join(","), ...data.rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(","))].join("\n");
+  const csv = [data.columns.join(","), ...getProcessedRows(active).map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(","))].join("\n");
   const blob = new Blob([csv], {type:"text/csv"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -882,56 +836,13 @@ document.getElementById("exportBtn").addEventListener("click", ()=>{
 document.getElementById("downloadBtn").addEventListener("click", ()=>{
   const domain = domainInput.value.trim() || "example.com";
   const activeTab = document.querySelector(".result-tab.active")?.dataset.tab || "subdomains";
-  if (activeTab === "network") return alert("Please select a table tab to download a PDF report.");
-  
   const data = datasets[activeTab];
-  const reportHtml = `<!doctype html><html><head><meta charset="utf-8"><title>ReconX Report</title><style>body{font-family:Arial,sans-serif;color:#17283a;padding:36px}h1{margin:0 0 8px;font-size:28px}.meta{color:#60758a;margin-bottom:28px}h2{font-size:18px;margin-top:28px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #d6e0e8;padding:9px;text-align:left;font-size:11px}th{background:#eef4f8}.footer{margin-top:28px;color:#71869a;font-size:10px}</style></head><body><h1>ReconX Security Report</h1><div class="meta">Automated Recon • ${domain} • ${new Date().toLocaleString()}</div><h2>${data.title}</h2><p>${data.subtitle}</p><table><thead><tr>${data.columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${data.rows.map(r=>`<tr>${r.map(v=>`<td>${String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")}</td>`).join("")}</tr>`).join("")}</tbody></table><div class="footer">Generated by ReconX.</div></body></html>`;
+  const reportRows = getProcessedRows(activeTab);
+  const reportHtml = `<!doctype html><html><head><meta charset="utf-8"><title>StackSurface Report</title><style>body{font-family:Arial,sans-serif;color:#17283a;padding:36px}h1{margin:0 0 8px;font-size:28px}.meta{color:#60758a;margin-bottom:28px}h2{font-size:18px;margin-top:28px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #d6e0e8;padding:9px;text-align:left;font-size:11px}th{background:#eef4f8}.footer{margin-top:28px;color:#71869a;font-size:10px}</style></head><body><h1>StackSurface Security Report</h1><div class="meta">Automated Recon • ${domain} • ${new Date().toLocaleString()}</div><h2>${data.title}</h2><p>${data.subtitle}</p><table><thead><tr>${data.columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${reportRows.map(r=>`<tr>${r.map(v=>`<td>${String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")}</td>`).join("")}</tr>`).join("")}</tbody></table><div class="footer">Generated by StackSurface.</div></body></html>`;
   const reportWindow = window.open("", "_blank");
   if (!reportWindow) { alert("Please allow pop-ups to generate the PDF report."); return; }
   reportWindow.document.open(); reportWindow.document.write(reportHtml); reportWindow.document.close();
   setTimeout(()=>reportWindow.print(),350);
-});
-
-// الإضافة: زر طلب تقرير الذكاء الاصطناعي (AI Report)
-document.getElementById("aiReportBtn")?.addEventListener("click", async () => {
-  if (!currentScanData || !currentScanData.scan_id) {
-    alert("Please wait for a scan to finish or select one from history.");
-    return;
-  }
-  
-  const btn = document.getElementById("aiReportBtn");
-  const originalText = btn.innerHTML;
-  btn.innerHTML = "⏳ Generating AI Report...";
-  btn.disabled = true;
-
-  try {
-    const res = await api(`/api/scans/${currentScanData.scan_id}/ai-report`, { method: "POST" });
-    if (!res.ok) throw new Error("Failed to generate AI report");
-    
-    const data = await res.json();
-    
-    const reportWindow = window.open("", "_blank");
-    if (!reportWindow) { alert("Please allow pop-ups to view the AI report."); return; }
-    
-    reportWindow.document.write(`
-      <html><head><title>AI Security Report</title>
-      <style>body{font-family: Arial, sans-serif; line-height: 1.6; padding: 40px; color: #333; max-width: 800px; margin: auto; background-color: #f8fafc;}</style>
-      </head><body>
-      <div style="background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-        <h1 style="color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">🤖 AI Security Executive Report</h1>
-        <p style="color: #64748b; font-size: 14px;">Target: ${currentScanData.domain} | Scan ID: ${currentScanData.scan_id}</p>
-        <pre style="white-space: pre-wrap; font-family: inherit; font-size: 16px; color: #334155; margin-top: 20px;">${data.report}</pre>
-        <button onclick="window.print()" style="margin-top: 20px; padding: 10px 20px; cursor: pointer; background: #3b82f6; color: white; border: none; border-radius: 5px; font-weight: bold;">Print Report</button>
-      </div>
-      </body></html>
-    `);
-    reportWindow.document.close();
-  } catch (err) {
-    alert("Error: " + err.message);
-  } finally {
-    btn.innerHTML = originalText;
-    btn.disabled = false;
-  }
 });
 
 const themeToggle = document.getElementById("themeToggle");
@@ -941,5 +852,3 @@ themeToggle?.addEventListener("click", () => {
   document.body.classList.toggle("light");
   localStorage.setItem("reconx-theme", document.body.classList.contains("light") ? "light" : "dark");
 });
-
-initAuth();
