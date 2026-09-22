@@ -14,7 +14,7 @@ import redis
 import httpx
 from supabase import create_client
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 r = redis.from_url(REDIS_URL, decode_responses=True)
 
 SCAN_DIR = Path("/scans")
@@ -42,15 +42,15 @@ def send_notification(message: str, custom_discord_webhook: str = None):
     if webhook:
         try:
             httpx.post(webhook, json={"content": message}, timeout=10)
-        except Exception as e:
-            print(f"[Alert Error] Discord: {e}")
+        except Exception:
+            pass
 
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
             httpx.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message}, timeout=10)
-        except Exception as e:
-            print(f"[Alert Error] Telegram: {e}")
+        except Exception:
+            pass
 
 def update(scan_id, **fields):
     r.hset(f"scan:{scan_id}", mapping={k: str(v) for k, v in fields.items()})
@@ -143,24 +143,35 @@ def src_findomain(scan_id, domain):
     if code != 0: return set(), f"findomain: exit {code}: {out[-300:]!r}"
     return {x.strip().lower() for x in out.splitlines() if x.strip()}, None
 
+# --- الإضافة 1: حل مشكلة crt.sh لما السيرفر يقع ---
 def src_crtsh(scan_id, domain):
     url = f"https://crt.sh/?q=%25.{domain}&output=json"
+    last_err = "Unknown error"
     for attempt in range(2):
         try:
             with httpx.Client(timeout=30, follow_redirects=True) as client:
-                data = client.get(url).json()
+                resp = client.get(url)
+                if resp.status_code != 200:
+                    time.sleep(2)
+                    continue
+                try:
+                    data = resp.json()
+                except json.JSONDecodeError:
+                    time.sleep(2)
+                    continue
             names = set()
-            for row in data:
-                for name in row.get("name_value", "").splitlines():
-                    name = name.strip().lower().lstrip("*.")
-                    if in_scope(name, domain):
-                        names.add(name)
-                        r.rpush(f"scan:{scan_id}:live_logs", f"[crt.sh] {name}")
+            if isinstance(data, list):
+                for row in data:
+                    for name in row.get("name_value", "").splitlines():
+                        name = name.strip().lower().lstrip("*.")
+                        if in_scope(name, domain):
+                            names.add(name)
+                            r.rpush(f"scan:{scan_id}:live_logs", f"[crt.sh] {name}")
             return names, None
         except Exception as e:
-            last_err = e
+            last_err = str(e)
             time.sleep(2)
-    return set(), f"crt.sh: {last_err}"
+    return set(), f"crt.sh error: {last_err}"
 
 def src_gau(scan_id, domain):
     out_file = SCAN_DIR / f"gau_{os.getpid()}_{time.time_ns()}.txt"
@@ -248,7 +259,6 @@ def run_cdncheck(resolved_map, errors):
     in_file.write_text("\n".join(unique_ips) + "\n")
     cdn_by_ip = {}
     try:
-        # شلنا -silent و تجاهلنا طباعة الـ exit code عشان ننظف اللوج
         code, out, err = run_command(["cdncheck", "-i", str(in_file), "-json"], timeout=60)
         for line in out.splitlines():
             if not line.strip(): continue
@@ -479,13 +489,11 @@ def lookup_osv_cves(library, version, errors):
             return [v.get("id") for v in resp.json().get("vulns", []) if v.get("id")]
     except Exception: return []
 
-# --- التعديل هنا: استقبال custom_wordlist ومعالجتها ---
 def run_feroxbuster(scan_id, live_hosts, errors, max_hosts=10, custom_wordlist=None):
     hosts = [h.get("url") for h in live_hosts if h.get("url")][:max_hosts]
     if not hosts: return []
     directories = []
     
-    # تحديد ملف الووردليست الافتراضي أو المخصص
     wordlist_path = "/usr/local/share/wordlist-small.txt"
     tmp_wordlist = None
     
@@ -506,7 +514,6 @@ def run_feroxbuster(scan_id, live_hosts, errors, max_hosts=10, custom_wordlist=N
                     directories.append({"path": data.get("url"), "status": data.get("status"), "size": data.get("content_length")})
             except json.JSONDecodeError: continue
             
-    # مسح الملف المؤقت بعد الاستخدام
     if tmp_wordlist and tmp_wordlist.exists():
         tmp_wordlist.unlink(missing_ok=True)
         
@@ -561,10 +568,19 @@ def diff_js_dependencies(project_id, user_id, detected_libs, errors):
     except Exception: pass
     return new_libs, cve_findings
 
-# --- التعديل هنا: تمرير custom_wordlist للدالة ---
 def run_scan(scan_id, domain, tools, user_id, project_id=None, discord_webhook=None, custom_wordlist=None):
     errors = []
     tools = set(tools or [])
+    
+    # --- الإضافة 2: الاعتماديات الضمنية (Implicit Dependencies) ---
+    if "trufflehog" in tools or "jsluice" in tools or "arjun" in tools:
+        tools.add("katana")  
+    if "katana" in tools or "nuclei" in tools or "feroxbuster" in tools:
+        tools.add("httpx")   
+    if "httpx" in tools or "cdncheck" in tools:
+        tools.add("dnsx")    
+    # -------------------------------------------------------------
+        
     update(scan_id, status="running", progress="5")
     
     if not is_safe_target(domain):
@@ -626,13 +642,13 @@ def run_scan(scan_id, domain, tools, user_id, project_id=None, discord_webhook=N
             detected_libs = fingerprint_js_libraries(js_dir, errors)
             new_js_deps, js_cve_findings = diff_js_dependencies(project_id, user_id, detected_libs, errors)
         finally:
-            if js_dir:
-                for f in js_dir.glob("*"): f.unlink(missing_ok=True)
-                js_dir.rmdir()
+            pass  # تم إيقاف المسح مؤقتاً للاختبار ورؤية الملفات
+            # if js_dir:
+            #     for f in js_dir.glob("*"): f.unlink(missing_ok=True)
+            #     js_dir.rmdir()
     update(scan_id, secrets=json.dumps(secrets), new_js_dependencies=json.dumps(new_js_deps), js_cve_findings=json.dumps(js_cve_findings), progress="88")
 
     directories = []
-    # التعديل هنا: تمرير custom_wordlist لـ run_feroxbuster
     if "feroxbuster" in tools: directories = run_feroxbuster(scan_id, live_hosts, errors, custom_wordlist=custom_wordlist)
     update(scan_id, directories=json.dumps(directories), progress="100", status="completed", errors=json.dumps(errors))
 
@@ -650,28 +666,41 @@ def run_scan(scan_id, domain, tools, user_id, project_id=None, discord_webhook=N
         notify_msg += "\n⚠️ CRITICAL/HIGH:\n" + "\n".join([f"- {v.get('name')} on {v.get('host')}" for v in high_critical_vulns[:5]])
     send_notification(notify_msg, custom_discord_webhook=discord_webhook)
 
+# --- الإضافة 3: تشغيل 5 فحوصات متوازية (Concurrency) ---
+def process_job(job):
+    scan_id = job["scan_id"]
+    domain = job["domain"]
+    tools = job.get("tools", [])
+    user_id = job.get("user_id")
+    project_id = job.get("project_id")
+    discord_webhook = job.get("discord_webhook")
+    custom_wordlist = job.get("custom_wordlist")
+    
+    print(f"✅ Job started! Scan ID: {scan_id} | Target: {domain}")
+    try:
+        run_scan(scan_id, domain, tools, user_id, project_id=project_id, discord_webhook=discord_webhook, custom_wordlist=custom_wordlist)
+        print(f"🏁 Scan {scan_id} completed successfully.")
+    except Exception as e:
+        tb = traceback.format_exc(limit=5)
+        print(f"❌ Scan {scan_id} failed: {tb}")
+        update(scan_id, status="failed", errors=json.dumps([tb]))
+        persist_to_supabase(scan_id, domain, tools, "failed", user_id, errors=[tb])
+        send_notification(f"❌ Worker Error on {domain}", custom_discord_webhook=discord_webhook)
+
 def main():
-    print("PTaaS worker started (Cleaned UI logic & sqlmap removed & custom wordlists active)")
+    print("🚀 PTaaS worker started (Concurrent Mode Active - Safe crt.sh & Implicit Deps)")
     write_subfinder_provider_config()
-    while True:
-        item = r.blpop("ptaas:scans", timeout=0)
-        if not item: continue
-        _, payload = item
-        job = json.loads(payload)
-        scan_id, domain, tools, user_id = job["scan_id"], job["domain"], job.get("tools", []), job.get("user_id")
-        project_id, discord_webhook = job.get("project_id"), job.get("discord_webhook") 
-        
-        # التعديل هنا: قراءة custom_wordlist من المهمة
-        custom_wordlist = job.get("custom_wordlist")
-        
-        try:
-            # التعديل هنا: تمرير custom_wordlist لدالة run_scan
-            run_scan(scan_id, domain, tools, user_id, project_id=project_id, discord_webhook=discord_webhook, custom_wordlist=custom_wordlist)
-        except Exception:
-            tb = traceback.format_exc(limit=5)
-            update(scan_id, status="failed", errors=json.dumps([tb]))
-            persist_to_supabase(scan_id, domain, tools, "failed", user_id, errors=[tb])
-            send_notification(f"❌ Worker Error on {domain}", custom_discord_webhook=discord_webhook)
+    
+    with ThreadPoolExecutor(max_workers=55) as executor:
+        while True:
+            try:
+                item = r.blpop("ptaas:scans", timeout=0)
+                if not item: continue
+                _, payload = item
+                job = json.loads(payload)
+                executor.submit(process_job, job)
+            except Exception as e:
+                print(f"Queue Error: {e}")
 
 if __name__ == "__main__":
     main()

@@ -13,6 +13,8 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import redis
 from supabase import create_client
+# احذف استدعاء google.genai القديم وحط مكانه:
+import google.generativeai as genai
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("stacksurface.backend")
@@ -25,6 +27,9 @@ r = redis.from_url(REDIS_URL, decode_responses=True)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
+
+# الإضافة: قراءة مفتاح Gemini
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -158,8 +163,8 @@ class ScanRequest(BaseModel):
     tools: Optional[List[str]] = None
     project_id: Optional[str] = None
     discord_webhook: Optional[str] = None
-    force_refresh: bool = False  # ميزة التحديث الإجباري أو سحب القديم
-    custom_wordlist: Optional[str] = None  # التعديل الجديد: استلام الكلمات المخصصة من الواجهة
+    force_refresh: bool = False  
+    custom_wordlist: Optional[str] = None  
 
 
 class ProjectRequest(BaseModel):
@@ -317,7 +322,7 @@ def create_scan(req: ScanRequest, user_id: str = Depends(get_current_user)):
         job["project_id"] = req.project_id
     if req.discord_webhook: 
         job["discord_webhook"] = req.discord_webhook
-    if req.custom_wordlist:  # التعديل الجديد: إرسال القائمة المخصصة للوركر
+    if req.custom_wordlist:  
         job["custom_wordlist"] = req.custom_wordlist
         
     r.rpush("ptaas:scans", json.dumps(job))
@@ -356,6 +361,53 @@ def get_scan(scan_id: str, user_id: str = Depends(get_current_user)):
     data["live_logs"] = r.lrange(f"scan:{scan_id}:live_logs", 0, -1)
     
     return data
+
+# ===========================================================================
+# الإضافة الجديدة: مسار تقرير الذكاء الاصطناعي (AI Report)
+# ===========================================================================
+@app.post("/api/scans/{scan_id}/ai-report")
+def generate_ai_report(scan_id: str, user_id: str = Depends(get_current_user)):
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="Gemini API Key is not configured on the server.")
+
+    # 1. جلب بيانات الفحص من Redis
+    scan_data = r.hgetall(f"scan:{scan_id}")
+    if not scan_data:
+        raise HTTPException(status_code=404, detail="Scan not found")
+        
+    if scan_data.get("user_id") and scan_data.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Access denied to this scan")
+
+    clean_data = {}
+    for field in ["domain", "status", "tools", "subdomains", "alive", "endpoints", "secrets", "vulnerabilities", "directories"]:
+        val = scan_data.get(field)
+        if val:
+            try:
+                clean_data[field] = json.loads(val) if field in JSON_FIELDS else val
+            except:
+                pass
+
+    prompt = f"""
+    Act as a Senior Application Security Engineer. 
+    Analyze the following reconnaissance and vulnerability scan results from 'StackSurface' automated pipeline.
+    Write a concise, professional executive security report. 
+    Format the output nicely using Markdown.
+    
+    Scan Data:
+    {json.dumps(clean_data, indent=2)[:30000]}
+    """
+
+    try:
+        # إعداد الطريقة القديمة والمستقرة
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-1.5-flash") # أو gemini-pro
+        response = model.generate_content(prompt)
+        
+        return {"report": response.text}
+    except Exception as e:
+        logger.exception("Failed to generate AI report using legacy SDK")
+        raise HTTPException(status_code=502, detail=f"AI generation failed: {str(e)}")
+# ===========================================================================
 
 
 @app.post("/api/projects")

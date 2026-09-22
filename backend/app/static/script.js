@@ -1,8 +1,8 @@
 // --- Supabase & Auth Setup ---
 const supabaseClient = supabase.createClient(window.__SUPABASE_URL__, window.__SUPABASE_ANON_KEY__);
 let currentSession = null;
-let currentScanData = null; // لحفظ الداتا الخاصة بالخريطة
-let networkInstance = null; // متغير خريطة الشبكة
+let currentScanData = null; 
+let networkInstance = null; 
 
 async function initAuth() {
   const { data, error } = await supabaseClient.auth.getSession();
@@ -76,7 +76,6 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
   await supabaseClient.auth.signOut();
 });
 
-// Improved API wrapper utilizing Supabase JWT
 function api(url, options = {}) {
   if (!currentSession) {
     console.error("No active session found!");
@@ -95,7 +94,7 @@ function api(url, options = {}) {
     });
 }
 
-// --- App Data ---
+// --- ترتيب الأدوات المنطقي الجديد (Kill Chain) ---
 const tools = [
   {key:"subfinder", icon:"⌁", desc:"Passive subdomain enumeration", tag:"Passive"},
   {key:"findomain", icon:"◎", desc:"Fast subdomain enumeration", tag:"Discovery"},
@@ -103,19 +102,24 @@ const tools = [
   {key:"crt.sh", icon:"◉", desc:"Certificate transparency search", tag:"OSINT", url:"https://crt.sh/"},
   {key:"gau", icon:"🕘", desc:"Fetch historical URLs (Archive & Wayback)", tag:"Archive"},
   {key:"anew", icon:"≋", desc:"Merge & deduplicate results", tag:"Cleanup"},
+  
+  {key:"permutations", icon:"⟲", desc:"Generates & resolves likely subdomain guesses", tag:"Active"},
   {key:"dnsx", icon:"◆", desc:"Resolves each subdomain to an IP", tag:"DNS"},
   {key:"cdncheck", icon:"◆", desc:"Flags CDN/WAF-fronted IPs before port lookup", tag:"DNS"},
   {key:"shodan", icon:"•", desc:"Open-port lookup per resolved IP (requires API Key)", tag:"Network", apiKey:true},
-  {key:"permutations", icon:"⟲", desc:"Generates & resolves likely subdomain guesses", tag:"Active"},
+  
   {key:"httpx", icon:"↗", desc:"Alive host & technology detection", tag:"HTTP"},
+  
   {key:"katana", icon:"⌁", desc:"Web crawling & URL discovery", tag:"Crawler"},
-  {key:"trufflehog", icon:"◍", desc:"Regex/entropy-based secret scanning", tag:"Secrets"},
-  {key:"jsluice", icon:"◍", desc:"AST-aware JS secret & endpoint analysis", tag:"Secrets"},
+  {key:"feroxbuster", icon:"◫", desc:"Directory & file fuzzing", tag:"Fuzzing"},
+  
   {key:"arjun", icon:"⟐", desc:"Parameter discovery", tag:"Params"},
-  {key:"nuclei", icon:"⬢", desc:"Vulnerability scanning", tag:"Scanner"},
-  {key:"feroxbuster", icon:"◫", desc:"Directory & file fuzzing", tag:"Fuzzing"}
+  {key:"jsluice", icon:"◍", desc:"AST-aware JS secret & endpoint analysis", tag:"Secrets"},
+  {key:"trufflehog", icon:"◍", desc:"Regex/entropy-based secret scanning", tag:"Secrets"},
+  {key:"nuclei", icon:"⬢", desc:"Vulnerability scanning", tag:"Scanner"}
 ];
 
+// --- ترتيب خطوات التحميل في الواجهة بنفس المنطق ---
 const stepMap = [
   ["subfinder","Subdomain Enumeration"],
   ["gau","Historical URL Discovery (gau)"],
@@ -126,11 +130,11 @@ const stepMap = [
   ["shodan","Open-Port Lookup (Shodan)"],
   ["httpx","Alive Host Detection (httpx)"],
   ["katana","URL Discovery (katana)"],
-  ["trufflehog","Secret Discovery (trufflehog)"],
-  ["jsluice","JS Secret Analysis (jsluice)"],
+  ["feroxbuster","Directory Fuzzing (feroxbuster)"],
   ["arjun","Parameter Discovery (arjun)"],
-  ["nuclei","Vulnerability Scanning (nuclei)"],
-  ["feroxbuster","Directory Fuzzing (feroxbuster)"]
+  ["jsluice","JS Secret Analysis (jsluice)"],
+  ["trufflehog","Secret Discovery (trufflehog)"],
+  ["nuclei","Vulnerability Scanning (nuclei)"]
 ];
 
 const lightScanTools = ["subfinder", "findomain", "assetfinder", "crt.sh", "gau", "anew", "dnsx", "cdncheck", "shodan", "httpx"];
@@ -249,6 +253,8 @@ function buildDatasets(scan) {
 }
 
 let datasets = buildDatasets({});
+let sortCol = -1;
+let sortAsc = true;
 
 const toolsList = document.getElementById("toolsList");
 const progressList = document.getElementById("progressList");
@@ -304,7 +310,6 @@ function setProgress(idx,state,meta,pct) {
   el.querySelector(".progress-pct").textContent = pct ?? "—";
 }
 
-// حماية المتصفح (Anti-freeze) اثناء العرض الحي
 function appendLog(text) {
   const stamp = new Date().toLocaleTimeString([], {hour12:false});
   consoleEl.textContent += `[${stamp}] ${text}\n`;
@@ -328,31 +333,27 @@ function resetProgress() {
   scanStatus.textContent = "Idle";
 }
 
-// رسم خريطة الشبكة التفاعلية (Network Graph)
 function drawNetworkGraph(scanData) {
   if (!scanData || !scanData.subdomains) return;
   
   const container = document.getElementById("networkGraph");
-  if (!container) return; // تأمين لو الـ DOM لسه مش موجود
+  if (!container) return; 
 
   const nodes = new vis.DataSet();
   const edges = new vis.DataSet();
   
-  // نعرض أول 300 دومين لتجنب بطء المتصفح
   const subdomains = scanData.subdomains.slice(0, 300);
   const rootDomain = scanData.domain || "Target";
   
-  // العقدة الأساسية (النواة)
   nodes.add({ id: rootDomain, label: rootDomain, shape: "hexagon", color: "#3b82f6", font: {color: "#fff"}, size: 25 });
   
   const aliveByHost = {};
   (scanData.alive || []).forEach(h => { if (h && h.host) aliveByHost[h.host] = h; });
   
   subdomains.forEach(sub => {
-    if (sub === rootDomain) return; // عشان مانكررش النواة
+    if (sub === rootDomain) return; 
     const isAlive = !!aliveByHost[sub];
     
-    // إضافة الـ Subdomain
     nodes.add({ 
       id: sub, 
       label: sub, 
@@ -362,10 +363,8 @@ function drawNetworkGraph(scanData) {
       font: {color: "#cbd5e1"} 
     });
     
-    // توصيل الدومين الأساسي بالـ Subdomain
     edges.add({ from: rootDomain, to: sub, color: "#1e293b" });
     
-    // إضافة الـ IPs للصاب دومينات الشغالة
     if (isAlive && aliveByHost[sub].a) {
       aliveByHost[sub].a.slice(0, 2).forEach(ip => {
         if (!nodes.get(ip)) {
@@ -382,7 +381,6 @@ function drawNetworkGraph(scanData) {
     interaction: { hover: true, tooltipDelay: 200, zoomView: true, dragView: true }
   };
   
-  // تدمير النسخة القديمة قبل رسم الجديدة
   if (networkInstance) networkInstance.destroy(); 
   networkInstance = new vis.Network(container, data, options);
 }
@@ -396,7 +394,6 @@ async function runScan()  {
   const selectedSet = new Set(selected);
   const projectId = document.getElementById("projectSelect").value || null;
   
-  // --- التعديل الجديد: قراءة الكلمات المخصصة من الواجهة ---
   const customWordlistEl = document.getElementById("customWordlistInput");
   const customWordlist = customWordlistEl ? customWordlistEl.value.trim() : "";
   
@@ -433,7 +430,7 @@ async function runScan()  {
         project_id: projectId,
         discord_webhook: discordWebhook || undefined,
         force_refresh: forceRefresh,
-        custom_wordlist: customWordlist || undefined // --- إرسالها للباك إند هنا ---
+        custom_wordlist: customWordlist || undefined 
       }),
     });
     
@@ -489,7 +486,6 @@ async function runScan()  {
       lastProgress = progress;
     }
 
-    // تحديث الداتا الكلية للرسم والجداول
     currentScanData = scan;
     datasets = buildDatasets(scan);
     refreshResultTabs(scan, domain);
@@ -516,7 +512,7 @@ async function runScan()  {
       appendLog(scan.status === "failed" ? "Scan finished with errors." : "Recon pipeline completed successfully.");
       
       resetRunState();
-      loadHistory(); // تحديث السجل بعد ما يخلص
+      loadHistory(); 
       
       if (scan.status !== "failed" || (scan.subdomains || []).length) {
         goTo("results");
@@ -545,7 +541,6 @@ function goTo(page) {
 }
 
 function refreshResultTabs(scan, domain) {
-  // تخطي تاب الخريطة أثناء تحديث الأرقام عشان ملهاش Span فيه رقم
   document.querySelectorAll(".result-tab:not([data-tab='network'])").forEach(tab => {
     const key = tab.dataset.tab;
     const total = (datasets[key] && datasets[key].total) || 0;
@@ -574,13 +569,29 @@ function escapeHtml(value) {
 
 function renderTable(tabKey, filter=""){
   const data = datasets[tabKey];
-  if (!data) return; // حماية ضد الأخطاء مع التابات اللي ملهاش داتا مباشرة زي الخريطة
+  if (!data) return; 
   
   document.getElementById("tableTitle").textContent = data.title;
   document.getElementById("tableSubtitle").textContent = data.subtitle;
   document.getElementById("tableSearch").placeholder = data.search;
 
-  document.getElementById("tableHead").innerHTML = `<tr>${data.columns.map(c=>`<th>${escapeHtml(c)}</th>`).join("")}</tr>`;
+  // التعديل هنا: تصميم احترافي للأسهم (↕ افتراضي، ↑ تصاعدي، ↓ تنازلي)
+  document.getElementById("tableHead").innerHTML = `<tr>${data.columns.map((c, i) => {
+    let sortIcon = "↕"; // السهمين الافتراضيين
+    let iconColor = "#475569"; // لون باهت للعمود اللي مش مترتب
+    
+    if (sortCol === i) {
+      sortIcon = sortAsc ? "↑" : "↓"; // سهم طالع أو نازل
+      iconColor = "#3b82f6"; // لون أزرق مميز للعمود المترتب حالياً
+    }
+    
+    return `<th style="cursor: pointer; user-select: none; transition: background 0.2s;" onclick="sortTable(${i})" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <span>${escapeHtml(c)}</span>
+        <span style="color: ${iconColor}; font-size: 14px; margin-left: 8px;">${sortIcon}</span>
+      </div>
+    </th>`;
+  }).join("")}</tr>`;
   
   const rows = data.rows.filter(r => r.join(" ").toLowerCase().includes(filter.toLowerCase()));
   
@@ -594,6 +605,7 @@ function renderTable(tabKey, filter=""){
   document.getElementById("tableBody").innerHTML = rows.map(row => {
     return `<tr>${row.map((cell,i)=>{
       const safeCell = escapeHtml(cell);
+      // دي الجزئية اللي بتحافظ على شكل وحجم بادج الـ Status بدون تغيير
       if(data.columns[i] === "Status"){
         const cls = cell==="200" ? "b200" : cell==="403" ? "b403" : cell==="302" || cell==="301" ? "b302" : "b404";
         return `<td><span class="badge ${cls}">${safeCell}</span></td>`;
@@ -611,6 +623,39 @@ function renderTable(tabKey, filter=""){
   document.getElementById("pagination").innerHTML = [1,2,3,4,5,"…",10].map((n,i)=>
     `<button class="page-btn ${i===0?"active":""}">${n}</button>`).join("");
 }
+
+// الإضافة: دالة ترتيب الجدول
+window.sortTable = function(colIndex) {
+  const activeTab = document.querySelector(".result-tab.active").dataset.tab;
+  const data = datasets[activeTab];
+  if (!data) return;
+
+  if (sortCol === colIndex) {
+    sortAsc = !sortAsc;
+  } else {
+    sortCol = colIndex;
+    sortAsc = true;
+  }
+
+  data.rows.sort((a, b) => {
+    let valA = a[colIndex] || "";
+    let valB = b[colIndex] || "";
+    
+    valA = String(valA).replace(/(<([^>]+)>)/gi, "");
+    valB = String(valB).replace(/(<([^>]+)>)/gi, "");
+
+    let numA = parseFloat(valA);
+    let numB = parseFloat(valB);
+
+    if (!isNaN(numA) && !isNaN(numB)) {
+      return sortAsc ? numA - numB : numB - numA;
+    }
+    
+    return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+  });
+
+  renderTable(activeTab, document.getElementById("tableSearch").value);
+};
 
 async function loadHistory() {
   const tbody = document.getElementById("historyTableBody");
@@ -650,7 +695,6 @@ async function loadHistory() {
   }
 }
 
-// Global function to be called from the History Table 'View' buttons
 window.loadScanFromHistory = async function(scanId) {
   try {
     const res = await api(`/api/scans/${scanId}`);
@@ -661,7 +705,6 @@ window.loadScanFromHistory = async function(scanId) {
     datasets = buildDatasets(scan);
     refreshResultTabs(scan, scan.domain);
     
-    // عند استدعاء فحص، نعرض جدول Subdomains افتراضياً
     document.querySelectorAll(".result-tab").forEach(t => t.classList.remove("active"));
     document.querySelector(".result-tab[data-tab='subdomains']").classList.add("active");
     
@@ -797,12 +840,14 @@ document.getElementById("tableSearch").addEventListener("input", e=>{
   if(active !== "network") renderTable(active,e.target.value);
 });
 
-// التعامل مع التبديل بين التابات (بما فيها خريطة الشبكة)
 document.querySelectorAll(".result-tab").forEach(tab => {
   tab.addEventListener("click", ()=>{
     document.querySelectorAll(".result-tab").forEach(t=>t.classList.remove("active"));
     tab.classList.add("active");
     document.getElementById("tableSearch").value = "";
+    // تصفير مؤشر الترتيب عند تغيير التاب
+    sortCol = -1;
+    sortAsc = true;
     
     const targetTab = tab.dataset.tab;
     const tableCard = document.getElementById("tableCard");
@@ -811,7 +856,6 @@ document.querySelectorAll(".result-tab").forEach(tab => {
     if (targetTab === "network") {
       if(tableCard) tableCard.style.display = "none";
       if(mapCard) mapCard.style.display = "block";
-      // استدعاء دالة الرسم بعد جزء من الثانية لضمان حساب أبعاد الشاشة بشكل صحيح
       setTimeout(() => drawNetworkGraph(currentScanData), 50); 
     } else {
       if(tableCard) tableCard.style.display = "block";
@@ -848,6 +892,48 @@ document.getElementById("downloadBtn").addEventListener("click", ()=>{
   setTimeout(()=>reportWindow.print(),350);
 });
 
+// الإضافة: زر طلب تقرير الذكاء الاصطناعي (AI Report)
+document.getElementById("aiReportBtn")?.addEventListener("click", async () => {
+  if (!currentScanData || !currentScanData.scan_id) {
+    alert("Please wait for a scan to finish or select one from history.");
+    return;
+  }
+  
+  const btn = document.getElementById("aiReportBtn");
+  const originalText = btn.innerHTML;
+  btn.innerHTML = "⏳ Generating AI Report...";
+  btn.disabled = true;
+
+  try {
+    const res = await api(`/api/scans/${currentScanData.scan_id}/ai-report`, { method: "POST" });
+    if (!res.ok) throw new Error("Failed to generate AI report");
+    
+    const data = await res.json();
+    
+    const reportWindow = window.open("", "_blank");
+    if (!reportWindow) { alert("Please allow pop-ups to view the AI report."); return; }
+    
+    reportWindow.document.write(`
+      <html><head><title>AI Security Report</title>
+      <style>body{font-family: Arial, sans-serif; line-height: 1.6; padding: 40px; color: #333; max-width: 800px; margin: auto; background-color: #f8fafc;}</style>
+      </head><body>
+      <div style="background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+        <h1 style="color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">🤖 AI Security Executive Report</h1>
+        <p style="color: #64748b; font-size: 14px;">Target: ${currentScanData.domain} | Scan ID: ${currentScanData.scan_id}</p>
+        <pre style="white-space: pre-wrap; font-family: inherit; font-size: 16px; color: #334155; margin-top: 20px;">${data.report}</pre>
+        <button onclick="window.print()" style="margin-top: 20px; padding: 10px 20px; cursor: pointer; background: #3b82f6; color: white; border: none; border-radius: 5px; font-weight: bold;">Print Report</button>
+      </div>
+      </body></html>
+    `);
+    reportWindow.document.close();
+  } catch (err) {
+    alert("Error: " + err.message);
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  }
+});
+
 const themeToggle = document.getElementById("themeToggle");
 const savedTheme = localStorage.getItem("reconx-theme");
 if (savedTheme === "light") document.body.classList.add("light");
@@ -856,5 +942,4 @@ themeToggle?.addEventListener("click", () => {
   localStorage.setItem("reconx-theme", document.body.classList.contains("light") ? "light" : "dark");
 });
 
-// Initialize Auth on Load
 initAuth();
