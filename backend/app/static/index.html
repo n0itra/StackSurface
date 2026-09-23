@@ -14,56 +14,27 @@
   <style>
     /* Auth Overlay */
     .auth-overlay {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(10, 15, 25, 0.85);
-      backdrop-filter: blur(8px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 9999;
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(10, 15, 25, 0.85); backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center; z-index: 9999;
     }
     .auth-card {
-      width: 100%;
-      max-width: 420px;
-      padding: 40px 32px;
-      background: var(--card-bg, #111827);
-      border-radius: 16px;
-      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      box-sizing: border-box;
-      display: flex;
-      flex-direction: column;
+      width: 100%; max-width: 420px; padding: 40px 32px;
+      background: var(--panel-2, #0f1e2d); border-radius: 16px;
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.08);
+      box-sizing: border-box; display: flex; flex-direction: column;
     }
-    .auth-card input {
-      box-sizing: border-box;
-      width: 100%;
-      margin-bottom: 16px;
-      padding: 12px 16px;
-      border-radius: 8px;
-    }
-    .auth-buttons {
-      display: flex;
-      gap: 12px;
-      margin-top: 8px;
-    }
-    .auth-buttons button {
-      flex: 1;
-      padding: 12px;
-    }
+    .auth-card input { box-sizing: border-box; width: 100%; margin-bottom: 16px; padding: 12px 16px; border-radius: 8px; }
+    .auth-buttons { display: flex; gap: 12px; margin-top: 8px; }
+    .auth-buttons button { flex: 1; padding: 12px; }
 
     /* Discord Box & Refresh */
     .discord-row { max-width: 600px; margin: 12px auto 8px auto; }
     .discord-input {
-      display: flex; align-items: center;
-      background: var(--input-bg, rgba(255, 255, 255, 0.03));
-      border: 1px solid rgba(88, 101, 242, 0.3);
-      border-radius: 8px; padding: 0 16px; height: 46px; transition: all 0.2s ease;
+      display: flex; align-items: center; background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(88, 101, 242, 0.3); border-radius: 8px; padding: 0 16px; height: 46px; transition: all 0.2s ease;
     }
-    .discord-input:focus-within {
-      border-color: #5865F2; box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.15);
-      background: var(--input-bg, rgba(255, 255, 255, 0.06));
-    }
+    .discord-input:focus-within { border-color: #5865F2; }
     .discord-input input { flex: 1; background: transparent; border: none; color: inherit; outline: none; padding-left: 12px; font-size: 14px; }
     
     .refresh-row { max-width: 600px; margin: 0 auto 16px auto; display: flex; justify-content: flex-start; padding-left: 4px; }
@@ -73,49 +44,17 @@
     .loading-row td { text-align: center; padding: 32px !important; color: #60758a; font-style: italic; }
 
     /* Map Card */
-    .map-card {
-      padding: 0; 
-      height: 650px; 
-      border: 1px solid rgba(255, 255, 255, 0.08); 
-      overflow: hidden;
-      border-radius: 12px;
-    }
+    .map-card { padding: 0; height: 650px; border: 1px solid rgba(255, 255, 255, 0.08); overflow: hidden; border-radius: 12px; }
     #networkGraph { width: 100%; height: 100%; background: #0b111e; outline: none; }
     
     /* Custom Wordlist */
-    .custom-wordlist-section {
-      margin-top: 16px; 
-      border-top: 1px solid rgba(255,255,255,0.08); 
-      padding-top: 16px;
-    }
-    .custom-wordlist-section h3 {
-      font-size: 14px; 
-      margin-bottom: 4px; 
-      color: #cbd5e1;
-      font-weight: 600;
-    }
-    .custom-wordlist-section p {
-      font-size: 12px; 
-      color: #64748b; 
-      margin-bottom: 10px;
-    }
+    .custom-wordlist-section { margin-top: 16px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 16px; }
+    .custom-wordlist-section h3 { font-size: 14px; margin-bottom: 4px; color: #cbd5e1; font-weight: 600; }
+    .custom-wordlist-section p { font-size: 12px; color: #64748b; margin-bottom: 10px; }
     .custom-wordlist-section textarea {
-      width: 100%; 
-      height: 80px; 
-      background: var(--input-bg, rgba(0,0,0,0.2)); 
-      border: 1px solid rgba(255,255,255,0.1); 
-      border-radius: 6px; 
-      color: #e2e8f0; 
-      padding: 10px; 
-      font-family: monospace; 
-      font-size: 13px;
-      resize: vertical;
-      box-sizing: border-box;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-    .custom-wordlist-section textarea:focus {
-      border-color: #3b82f6;
+      width: 100%; height: 80px; background: rgba(0,0,0,0.3); 
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; 
+      padding: 10px; font-family: monospace; font-size: 13px; resize: vertical; outline: none;
     }
   </style>
 </head>
@@ -123,7 +62,7 @@
   
   <div id="authOverlay" class="auth-overlay">
     <div class="card auth-card">
-      <div class="brand-mark" style="font-size: 36px; margin-bottom: 8px; text-align: center; color: #3b82f6;">✦</div>
+      <div class="brand-mark" style="font-size: 36px; margin-bottom: 8px; text-align: center; color: #2498ff;">✦</div>
       <h2 style="text-align: center; margin-bottom: 24px; font-weight: 600;">Welcome to ReconX</h2>
       <input id="authEmail" type="email" placeholder="Email address" />
       <input id="authPassword" type="password" placeholder="Password" />
@@ -147,7 +86,7 @@
         <button class="nav-link" data-page="history">History</button>
       </nav>
       <div class="top-actions">
-        <span id="userEmailDisplay" style="font-size: 13px; color: #60758a; margin-right: 12px; font-weight: 500;"></span>
+        <span id="userEmailDisplay" style="font-size: 13px; color: #8194a8; margin-right: 12px; font-weight: 500;"></span>
         <button id="logoutBtn" class="ghost-btn" style="margin-right: 12px;">Logout</button>
         <button class="theme-switch" id="themeToggle" title="Toggle dark / light mode">☼ / ☾</button>
       </div>
@@ -161,12 +100,37 @@
           <h1>automated recon</h1>
           <p></p>
 
+          <!-- الإحصائيات مطابقة للصورة الجديدة -->
+          <div class="startup-stats-container" id="startupStats" style="display: none;">
+            <div class="stat-card">
+              <div class="stat-icon" style="color: #2498ff;">🛡️</div>
+              <div class="stat-info">
+                <span class="stat-value" id="statScans">0</span>
+                <span class="stat-label">TOTAL SCANS</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon" style="color: #2498ff;">🌐</div>
+              <div class="stat-info">
+                <span class="stat-value" id="statSubs">0</span>
+                <span class="stat-label">ASSETS FOUND</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">🚨</div>
+              <div class="stat-info">
+                <span class="stat-value" id="statVulns" style="color: #ef625f;">0</span>
+                <span class="stat-label">VULNERABILITIES</span>
+              </div>
+            </div>
+          </div>
+
           <div class="search-row" style="max-width: 600px; margin: 0 auto;">
             <div class="domain-input" style="flex: 1;">
               <span class="input-icon">◉</span>
               <input id="domainInput" value="example.com" placeholder="example.com" style="width: 100%;" />
             </div>
-            <button class="primary-btn" id="startBtn">▶ <span>START</span></button>
+            <button class="primary-btn" id="startBtn">▶ Run Scan</button>
           </div>
 
           <div class="refresh-row">
@@ -276,7 +240,7 @@
           <div class="results-actions">
             <span class="scan-time" id="scanTimeDisplay">Scan Time: -</span>
             <div>
-              <button id="aiReportBtn" class="primary-btn" style="background-color: #8b5cf6; border-color: #7c3aed; margin-right: 8px;">🤖 AI Report</button>
+              <button id="aiReportBtn" class="primary-btn" style="background: linear-gradient(135deg, #a855f7, #6366f1); border: none; margin-right: 8px;">🤖 AI Report</button>
               <button class="secondary-btn" id="downloadBtn">⇩ Download Report</button>
               <button class="secondary-btn" data-page="home">↻ New Scan</button>
             </div>
@@ -292,7 +256,7 @@
           <button class="result-tab" data-tab="endpoints">Endpoints <span>0</span></button>
           <button class="result-tab" data-tab="secrets">Secrets <span>0</span></button>
           <button class="result-tab" data-tab="dependencies">Dependencies <span>0</span></button>
-          <button class="result-tab" data-tab="vulnerabilities">Vulnerabilities <span>0</span></button>
+          <button class="result-tab vuln-tab" data-tab="vulnerabilities">Vulnerabilities <span>0</span></button>
           <button class="result-tab" data-tab="directories">Directories <span>0</span></button>
         </div>
 
