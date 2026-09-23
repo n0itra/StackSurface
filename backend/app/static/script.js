@@ -32,6 +32,7 @@ function handleLoginSuccess(session) {
   document.getElementById("userEmailDisplay").textContent = session.user.email;
   loadProjects();
   loadHistory();
+  loadStartupStats();
 }
 
 document.getElementById("loginBtn").addEventListener("click", async () => {
@@ -94,7 +95,7 @@ function api(url, options = {}) {
     });
 }
 
-// --- ترتيب الأدوات المنطقي الجديد (Kill Chain) ---
+// --- ترتيب الأدوات المنطقي الجديد (تمت إزالة Arjun) ---
 const tools = [
   {key:"subfinder", icon:"⌁", desc:"Passive subdomain enumeration", tag:"Passive"},
   {key:"findomain", icon:"◎", desc:"Fast subdomain enumeration", tag:"Discovery"},
@@ -102,24 +103,18 @@ const tools = [
   {key:"crt.sh", icon:"◉", desc:"Certificate transparency search", tag:"OSINT", url:"https://crt.sh/"},
   {key:"gau", icon:"🕘", desc:"Fetch historical URLs (Archive & Wayback)", tag:"Archive"},
   {key:"anew", icon:"≋", desc:"Merge & deduplicate results", tag:"Cleanup"},
-  
   {key:"permutations", icon:"⟲", desc:"Generates & resolves likely subdomain guesses", tag:"Active"},
   {key:"dnsx", icon:"◆", desc:"Resolves each subdomain to an IP", tag:"DNS"},
   {key:"cdncheck", icon:"◆", desc:"Flags CDN/WAF-fronted IPs before port lookup", tag:"DNS"},
-  {key:"shodan", icon:"•", desc:"Open-port lookup per resolved IP (requires API Key)", tag:"Network", apiKey:true},
-  
+  {key:"shodan", icon:"•", desc:"Open-port lookup per resolved IP", tag:"Network", apiKey:true},
   {key:"httpx", icon:"↗", desc:"Alive host & technology detection", tag:"HTTP"},
-  
   {key:"katana", icon:"⌁", desc:"Web crawling & URL discovery", tag:"Crawler"},
   {key:"feroxbuster", icon:"◫", desc:"Directory & file fuzzing", tag:"Fuzzing"},
-  
-  {key:"arjun", icon:"⟐", desc:"Parameter discovery", tag:"Params"},
   {key:"jsluice", icon:"◍", desc:"AST-aware JS secret & endpoint analysis", tag:"Secrets"},
   {key:"trufflehog", icon:"◍", desc:"Regex/entropy-based secret scanning", tag:"Secrets"},
   {key:"nuclei", icon:"⬢", desc:"Vulnerability scanning", tag:"Scanner"}
 ];
 
-// --- ترتيب خطوات التحميل في الواجهة بنفس المنطق ---
 const stepMap = [
   ["subfinder","Subdomain Enumeration"],
   ["gau","Historical URL Discovery (gau)"],
@@ -131,7 +126,6 @@ const stepMap = [
   ["httpx","Alive Host Detection (httpx)"],
   ["katana","URL Discovery (katana)"],
   ["feroxbuster","Directory Fuzzing (feroxbuster)"],
-  ["arjun","Parameter Discovery (arjun)"],
   ["jsluice","JS Secret Analysis (jsluice)"],
   ["trufflehog","Secret Discovery (trufflehog)"],
   ["nuclei","Vulnerability Scanning (nuclei)"]
@@ -144,6 +138,18 @@ function buildDatasets(scan) {
   const unresolved = new Set(scan.unresolved || []);
   const alive = scan.alive || [];
   const vulnerabilities = scan.vulnerabilities || [];
+
+  // الإضافة 1: استخراج البورتات من Shodan
+  let portsMap = {};
+  try {
+    if (typeof scan.ports === 'string') portsMap = JSON.parse(scan.ports);
+    else if (typeof scan.ports === 'object') portsMap = scan.ports || {};
+  } catch(e){}
+  
+  const portsList = [];
+  Object.entries(portsMap).forEach(([ip, pList]) => {
+    (pList || []).forEach(p => portsList.push({ip, port: p}));
+  });
 
   const aliveByHost = {};
   alive.forEach(h => { if (h && h.host) aliveByHost[h.host] = h; });
@@ -181,6 +187,15 @@ function buildDatasets(scan) {
       ]),
       total: alive.length,
     },
+    // الإضافة 2: إضافة جدول البورتات
+    ports: {
+      title: "Open Ports",
+      subtitle: `${portsList.length} open ports detected via Shodan`,
+      search: "Search IP or Port...",
+      columns: ["#", "IP Address", "Port"],
+      rows: portsList.map((p, i) => [String(i+1), p.ip, String(p.port)]),
+      total: portsList.length
+    },
     endpoints: {
       title: "Endpoints",
       subtitle: `${(scan.endpoints || []).length} endpoints discovered`,
@@ -206,12 +221,13 @@ function buildDatasets(scan) {
       title: "Vulnerabilities",
       subtitle: `${vulnerabilities.length} template matches`,
       search: "Search vulnerabilities...",
-      columns: ["#", "Finding", "Host", "Severity", "Confidence"],
+      columns: ["#", "Finding", "Host", "Severity", "Details"], // تم تغيير Confidence لـ Details
       rows: vulnerabilities.map((v, i) => [
         String(i + 1), v.name || v.template || "-", v.host || "-",
         (v.severity || "info").replace(/^\w/, c => c.toUpperCase()),
-        v.confidence || "potential",
+        `<button class="details-btn" onclick="window.openVulnModal(${i})">Info</button>` // زرار الـ Modal
       ]),
+      rawData: vulnerabilities, // لحفظ الداتا للـ Modal
       total: vulnerabilities.length,
     },
     changes: {
@@ -512,7 +528,8 @@ async function runScan()  {
       appendLog(scan.status === "failed" ? "Scan finished with errors." : "Recon pipeline completed successfully.");
       
       resetRunState();
-      loadHistory(); 
+      loadHistory();
+      loadStartupStats(); 
       
       if (scan.status !== "failed" || (scan.subdomains || []).length) {
         goTo("results");
@@ -575,14 +592,13 @@ function renderTable(tabKey, filter=""){
   document.getElementById("tableSubtitle").textContent = data.subtitle;
   document.getElementById("tableSearch").placeholder = data.search;
 
-  // التعديل هنا: تصميم احترافي للأسهم (↕ افتراضي، ↑ تصاعدي، ↓ تنازلي)
   document.getElementById("tableHead").innerHTML = `<tr>${data.columns.map((c, i) => {
-    let sortIcon = "↕"; // السهمين الافتراضيين
-    let iconColor = "#475569"; // لون باهت للعمود اللي مش مترتب
+    let sortIcon = "↕"; 
+    let iconColor = "var(--text-muted)"; 
     
     if (sortCol === i) {
-      sortIcon = sortAsc ? "↑" : "↓"; // سهم طالع أو نازل
-      iconColor = "#3b82f6"; // لون أزرق مميز للعمود المترتب حالياً
+      sortIcon = sortAsc ? "↑" : "↓";
+      iconColor = "var(--accent)"; 
     }
     
     return `<th style="cursor: pointer; user-select: none; transition: background 0.2s;" onclick="sortTable(${i})" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
@@ -604,17 +620,20 @@ function renderTable(tabKey, filter=""){
 
   document.getElementById("tableBody").innerHTML = rows.map(row => {
     return `<tr>${row.map((cell,i)=>{
+      // الإضافة 3: السماح بزرار الـ Info بدون Escape
+      if (typeof cell === 'string' && cell.includes('class="details-btn"')) {
+        return `<td>${cell}</td>`;
+      }
+      
       const safeCell = escapeHtml(cell);
-      // دي الجزئية اللي بتحافظ على شكل وحجم بادج الـ Status بدون تغيير
       if(data.columns[i] === "Status"){
         const cls = cell==="200" ? "b200" : cell==="403" ? "b403" : cell==="302" || cell==="301" ? "b302" : "b404";
         return `<td><span class="badge ${cls}">${safeCell}</span></td>`;
       }
       if(data.columns[i] === "Severity"){
-        const cls = cell==="Critical" ? "b403" : cell==="High" ? "b302" : "b404";
+        const cls = cell==="Critical" || cell==="High" ? "b403" : cell==="Medium" ? "b302" : "b404";
         return `<td><span class="badge ${cls}">${safeCell}</span></td>`;
       }
-      if(cell==="Details") return `<td><button class="details-btn" type="button">Details</button></td>`;
       return `<td>${safeCell}</td>`;
     }).join("")}</tr>`;
   }).join("");
@@ -624,7 +643,39 @@ function renderTable(tabKey, filter=""){
     `<button class="page-btn ${i===0?"active":""}">${n}</button>`).join("");
 }
 
-// الإضافة: دالة ترتيب الجدول
+// -------------------------------------------------------------
+// الإضافة 4: النافذة المنبثقة (Modal) لزرار Info
+// -------------------------------------------------------------
+window.openVulnModal = function(index) {
+  const v = datasets['vulnerabilities'].rawData[index];
+  if(!v) return;
+  document.getElementById('modalTitle').textContent = v.name || v.template || 'Vulnerability Details';
+  
+  let html = `
+    <div class="modal-field"><strong>Target Host</strong><div class="modal-code">${escapeHtml(v.host || 'N/A')}</div></div>
+    <div class="modal-field"><strong>Severity</strong><div><span class="badge ${v.severity === 'high' || v.severity === 'critical' ? 'b403' : 'b302'}">${escapeHtml(v.severity || 'info')}</span></div></div>
+    <div class="modal-field"><strong>Template ID</strong><div class="modal-code">${escapeHtml(v.template || 'N/A')}</div></div>
+  `;
+  if (v.description && v.description !== "No description available") {
+    html += `<div class="modal-field"><strong>Description</strong><div class="modal-code">${escapeHtml(v.description)}</div></div>`;
+  }
+  if (v.extracted_results && v.extracted_results.length > 0) {
+    html += `<div class="modal-field"><strong>Extracted Results (Proof)</strong><div class="modal-code" style="color: var(--accent);">${escapeHtml(v.extracted_results.join('\n'))}</div></div>`;
+  }
+  
+  document.getElementById('modalBody').innerHTML = html;
+  document.getElementById('infoModal').classList.add('active');
+};
+
+document.getElementById('closeModalBtn').addEventListener('click', () => {
+  document.getElementById('infoModal').classList.remove('active');
+});
+
+document.getElementById('infoModal').addEventListener('click', (e) => {
+  if(e.target.id === 'infoModal') document.getElementById('infoModal').classList.remove('active');
+});
+// -------------------------------------------------------------
+
 window.sortTable = function(colIndex) {
   const activeTab = document.querySelector(".result-tab.active").dataset.tab;
   const data = datasets[activeTab];
@@ -657,6 +708,24 @@ window.sortTable = function(colIndex) {
   renderTable(activeTab, document.getElementById("tableSearch").value);
 };
 
+async function loadStartupStats() {
+  try {
+    const res = await api("/api/stats");
+    if (!res.ok) return;
+    const stats = await res.json();
+    
+    document.getElementById("statScans").textContent = stats.total_scans || 0;
+    document.getElementById("statSubs").textContent = (stats.total_subdomains || 0).toLocaleString();
+    document.getElementById("statVulns").textContent = (stats.total_vulnerabilities || 0).toLocaleString();
+    
+    if (stats.total_scans > 0) {
+      document.getElementById("startupStats").style.display = "flex";
+    }
+  } catch (e) {
+    console.warn("Could not load startup stats.");
+  }
+}
+
 async function loadHistory() {
   const tbody = document.getElementById("historyTableBody");
   try {
@@ -676,13 +745,13 @@ async function loadHistory() {
       
       const subsCount = item.subdomains_count ?? 0;
       const vulnsCount = item.vulnerabilities_count ?? 0;
-      const vulnClass = vulnsCount > 0 ? "color: #ef4444; font-weight: bold;" : "color: #60758a;";
+      const vulnClass = vulnsCount > 0 ? "color: var(--danger); font-weight: bold;" : "color: var(--text-muted);";
       
       return `<tr>
         <td>${escapeHtml(date)}</td>
-        <td style="font-weight: 500;">${escapeHtml(item.domain)}</td>
+        <td style="font-weight: 500; color: #fff;">${escapeHtml(item.domain)}</td>
         <td><span class="badge ${statusClass}">${escapeHtml(item.status)}</span></td>
-        <td style="font-weight: 500; color: #3b82f6;">${subsCount}</td>
+        <td style="font-weight: 600; color: var(--accent);">${subsCount}</td>
         <td style="${vulnClass}">${vulnsCount}</td>
         <td>
           <button class="secondary-btn small" onclick="loadScanFromHistory('${escapeHtml(item.scan_id)}')">View</button>
@@ -781,7 +850,6 @@ document.getElementById("saveProjectBtn").addEventListener("click", async () => 
 
 startBtn.addEventListener("click", runScan);
 
-// Presets
 document.getElementById("lightScanBtn").addEventListener("click", () => {
   document.querySelectorAll(".tool-row input:not(:disabled)").forEach(checkbox => {
     checkbox.checked = lightScanTools.includes(checkbox.dataset.tool);
@@ -845,7 +913,7 @@ document.querySelectorAll(".result-tab").forEach(tab => {
     document.querySelectorAll(".result-tab").forEach(t=>t.classList.remove("active"));
     tab.classList.add("active");
     document.getElementById("tableSearch").value = "";
-    // تصفير مؤشر الترتيب عند تغيير التاب
+    
     sortCol = -1;
     sortAsc = true;
     
@@ -885,14 +953,14 @@ document.getElementById("downloadBtn").addEventListener("click", ()=>{
   if (activeTab === "network") return alert("Please select a table tab to download a PDF report.");
   
   const data = datasets[activeTab];
-  const reportHtml = `<!doctype html><html><head><meta charset="utf-8"><title>ReconX Report</title><style>body{font-family:Arial,sans-serif;color:#17283a;padding:36px}h1{margin:0 0 8px;font-size:28px}.meta{color:#60758a;margin-bottom:28px}h2{font-size:18px;margin-top:28px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #d6e0e8;padding:9px;text-align:left;font-size:11px}th{background:#eef4f8}.footer{margin-top:28px;color:#71869a;font-size:10px}</style></head><body><h1>ReconX Security Report</h1><div class="meta">Automated Recon • ${domain} • ${new Date().toLocaleString()}</div><h2>${data.title}</h2><p>${data.subtitle}</p><table><thead><tr>${data.columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${data.rows.map(r=>`<tr>${r.map(v=>`<td>${String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")}</td>`).join("")}</tr>`).join("")}</tbody></table><div class="footer">Generated by ReconX.</div></body></html>`;
+  const reportHtml = `<!doctype html><html><head><meta charset="utf-8"><title>StackSurface Report</title><style>body{font-family:Arial,sans-serif;color:#17283a;padding:36px}h1{margin:0 0 8px;font-size:28px}.meta{color:#60758a;margin-bottom:28px}h2{font-size:18px;margin-top:28px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #d6e0e8;padding:9px;text-align:left;font-size:11px}th{background:#eef4f8}.footer{margin-top:28px;color:#71869a;font-size:10px}</style></head><body><h1>StackSurface Security Report</h1><div class="meta">Automated Recon • ${domain} • ${new Date().toLocaleString()}</div><h2>${data.title}</h2><p>${data.subtitle}</p><table><thead><tr>${data.columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${data.rows.map(r=>`<tr>${r.map(v=>`<td>${String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")}</td>`).join("")}</tr>`).join("")}</tbody></table><div class="footer">Generated by StackSurface.</div></body></html>`;
   const reportWindow = window.open("", "_blank");
   if (!reportWindow) { alert("Please allow pop-ups to generate the PDF report."); return; }
   reportWindow.document.open(); reportWindow.document.write(reportHtml); reportWindow.document.close();
   setTimeout(()=>reportWindow.print(),350);
 });
 
-// الإضافة: زر طلب تقرير الذكاء الاصطناعي (AI Report)
+// AI Report Button Logic
 document.getElementById("aiReportBtn")?.addEventListener("click", async () => {
   if (!currentScanData || !currentScanData.scan_id) {
     alert("Please wait for a scan to finish or select one from history.");
@@ -901,12 +969,15 @@ document.getElementById("aiReportBtn")?.addEventListener("click", async () => {
   
   const btn = document.getElementById("aiReportBtn");
   const originalText = btn.innerHTML;
-  btn.innerHTML = "⏳ Generating AI Report...";
+  btn.innerHTML = "⏳ Generating...";
   btn.disabled = true;
 
   try {
     const res = await api(`/api/scans/${currentScanData.scan_id}/ai-report`, { method: "POST" });
-    if (!res.ok) throw new Error("Failed to generate AI report");
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || `HTTP Error ${res.status}`);
+    }
     
     const data = await res.json();
     
@@ -915,31 +986,25 @@ document.getElementById("aiReportBtn")?.addEventListener("click", async () => {
     
     reportWindow.document.write(`
       <html><head><title>AI Security Report</title>
-      <style>body{font-family: Arial, sans-serif; line-height: 1.6; padding: 40px; color: #333; max-width: 800px; margin: auto; background-color: #f8fafc;}</style>
+      <style>body{font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; padding: 40px; color: #1e293b; max-width: 800px; margin: auto; background-color: #f8fafc;}</style>
       </head><body>
-      <div style="background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-        <h1 style="color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">🤖 AI Security Executive Report</h1>
-        <p style="color: #64748b; font-size: 14px;">Target: ${currentScanData.domain} | Scan ID: ${currentScanData.scan_id}</p>
-        <pre style="white-space: pre-wrap; font-family: inherit; font-size: 16px; color: #334155; margin-top: 20px;">${data.report}</pre>
-        <button onclick="window.print()" style="margin-top: 20px; padding: 10px 20px; cursor: pointer; background: #3b82f6; color: white; border: none; border-radius: 5px; font-weight: bold;">Print Report</button>
+      <div style="background: white; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);">
+        <h1 style="color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; margin-top: 0;">🤖 Executive Security Report</h1>
+        <p style="color: #64748b; font-size: 14px;"><strong>Target:</strong> ${currentScanData.domain} <br> <strong>Scan ID:</strong> ${currentScanData.scan_id}</p>
+        <div style="white-space: pre-wrap; font-size: 15px; color: #334155; margin-top: 25px; padding: 20px; background: #f1f5f9; border-radius: 8px; border: 1px solid #e2e8f0;">${data.report}</div>
+        <div style="text-align: right;">
+          <button onclick="window.print()" style="margin-top: 30px; padding: 12px 24px; cursor: pointer; background: #8b5cf6; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 14px;">Print Report</button>
+        </div>
       </div>
       </body></html>
     `);
     reportWindow.document.close();
   } catch (err) {
-    alert("Error: " + err.message);
+    alert("AI Report Failed:\n" + err.message);
   } finally {
     btn.innerHTML = originalText;
     btn.disabled = false;
   }
-});
-
-const themeToggle = document.getElementById("themeToggle");
-const savedTheme = localStorage.getItem("reconx-theme");
-if (savedTheme === "light") document.body.classList.add("light");
-themeToggle?.addEventListener("click", () => {
-  document.body.classList.toggle("light");
-  localStorage.setItem("reconx-theme", document.body.classList.contains("light") ? "light" : "dark");
 });
 
 initAuth();

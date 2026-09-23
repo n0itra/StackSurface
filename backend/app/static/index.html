@@ -8,7 +8,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css" />
-  <!-- Supabase & Vis.js Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 
@@ -140,7 +139,7 @@
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark">✦</div>
-        <span>ReconX</span>
+        <span>RECONX</span>
       </div>
       <nav class="nav">
         <button class="nav-link active" data-page="home">Home</button>
@@ -155,7 +154,6 @@
     </header>
 
     <main>
-      <!-- HOME PAGE -->
       <section id="homePage" class="page active-page">
         <div class="hero">
           <div class="glow glow-left"></div>
@@ -168,7 +166,7 @@
               <span class="input-icon">◉</span>
               <input id="domainInput" value="example.com" placeholder="example.com" style="width: 100%;" />
             </div>
-            <button class="primary-btn" id="startBtn">▶ <span>Start</span></button>
+            <button class="primary-btn" id="startBtn">▶ <span>START</span></button>
           </div>
 
           <div class="refresh-row">
@@ -211,7 +209,7 @@
           </button>
         </div>
 
-        <div class="workspace" id="workspace">
+        <div class="workspace collapsed" id="workspace">
           <div class="card tools-card advanced-panel" id="toolsCard">
             <div class="card-title-row">
               <div class="title-wrap">
@@ -233,22 +231,20 @@
             
             <div id="toolsList" class="tools-list"></div>
             
-            <!-- ميزة قوائم التخمين المخصصة (Custom Wordlist) -->
             <div class="custom-wordlist-section">
               <h3>Custom Wordlist (Optional)</h3>
               <p>Enter paths separated by newlines. Overrides the default wordlist for Feroxbuster.</p>
               <textarea id="customWordlistInput" placeholder="admin&#10;api/v2&#10;backup.zip&#10;.git/config"></textarea>
             </div>
-
           </div>
 
-          <div class="right-stack">
-            <div class="card progress-card advanced-panel" id="progressCard">
+          <div class="right-stack" id="rightStack">
+            <div class="card progress-card" id="progressCard">
               <div class="card-title-row">
                 <div class="title-wrap">
                   <div class="title-icon">⚙</div>
                   <div>
-                    <h2>Scan Progress</h2>
+                    <h2>Pipeline Status</h2>
                     <span id="scanStatus">Idle</span>
                   </div>
                 </div>
@@ -262,14 +258,12 @@
                 <span>›_ Live Output</span>
                 <button id="clearConsole" class="ghost-btn">Clear</button>
               </div>
-              <pre id="console">Waiting to start scan...
-</pre>
+              <pre id="console">Waiting to start scan...</pre>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- RESULTS PAGE -->
       <section id="resultsPage" class="page">
         <div class="results-header">
           <div>
@@ -282,7 +276,6 @@
           <div class="results-actions">
             <span class="scan-time" id="scanTimeDisplay">Scan Time: -</span>
             <div>
-              <!-- زر التقرير الذكي الجديد تم إضافته هنا -->
               <button id="aiReportBtn" class="primary-btn" style="background-color: #8b5cf6; border-color: #7c3aed; margin-right: 8px;">🤖 AI Report</button>
               <button class="secondary-btn" id="downloadBtn">⇩ Download Report</button>
               <button class="secondary-btn" data-page="home">↻ New Scan</button>
@@ -294,6 +287,7 @@
           <button class="result-tab active" data-tab="subdomains">Subdomains <span>0</span></button>
           <button class="result-tab" data-tab="network">🗺️ Network Map</button> 
           <button class="result-tab" data-tab="alive">Alive Hosts <span>0</span></button>
+          <button class="result-tab" data-tab="ports">Ports <span>0</span></button>
           <button class="result-tab" data-tab="changes">Changes <span>0</span></button>
           <button class="result-tab" data-tab="endpoints">Endpoints <span>0</span></button>
           <button class="result-tab" data-tab="secrets">Secrets <span>0</span></button>
@@ -302,7 +296,6 @@
           <button class="result-tab" data-tab="directories">Directories <span>0</span></button>
         </div>
 
-        <!-- Table View -->
         <div class="card table-card" id="tableCard">
           <div class="table-toolbar">
             <div class="table-heading">
@@ -320,26 +313,25 @@
               <button class="secondary-btn" id="exportBtn">⇩ Export</button>
             </div>
           </div>
-          <div class="table-wrap">
+          
+          <div class="table-wrap wrap-table">
             <table>
               <thead id="tableHead"></thead>
               <tbody id="tableBody"></tbody>
             </table>
           </div>
+          
           <div class="table-footer">
             <span id="rowSummary">Showing 0 results</span>
             <div class="pagination" id="pagination"></div>
           </div>
         </div>
 
-        <!-- Network Map View -->
         <div class="card map-card" id="mapCard" style="display: none;">
           <div id="networkGraph"></div>
         </div>
-
       </section>
 
-      <!-- HISTORY PAGE -->
       <section id="historyPage" class="page">
         <div class="results-header">
           <div>
@@ -354,7 +346,7 @@
         </div>
 
         <div class="card table-card">
-          <div class="table-wrap">
+          <div class="table-wrap wrap-table">
             <table>
               <thead>
                 <tr>
@@ -375,6 +367,16 @@
       </section>
       
     </main>
+  </div>
+
+  <div id="infoModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modalTitle">Vulnerability Details</h3>
+        <button id="closeModalBtn" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
   </div>
 
   <script src="/static/script.js"></script>

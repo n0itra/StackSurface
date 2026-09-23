@@ -44,7 +44,6 @@ def send_notification(message: str, custom_discord_webhook: str = None):
             httpx.post(webhook, json={"content": message}, timeout=10)
         except Exception:
             pass
-
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -71,8 +70,7 @@ def run_command_live(scan_id, args, timeout=300, tool_name=""):
         for line in p.stdout:
             out_lines.append(line)
             clean = line.strip()
-            if not clean:
-                continue
+            if not clean: continue
             display = ""
             if tool_name in ["subfinder", "assetfinder", "findomain", "puredns"]:
                 display = clean
@@ -111,15 +109,11 @@ def run_command_live(scan_id, args, timeout=300, tool_name=""):
         return -1, "", str(e)
 
 def is_safe_target(domain: str) -> bool:
-    try:
-        resolved_ips = {info[4][0] for info in socket.getaddrinfo(domain, None)}
-    except socket.gaierror:
-        return False
+    try: resolved_ips = {info[4][0] for info in socket.getaddrinfo(domain, None)}
+    except socket.gaierror: return False
     for ip_str in resolved_ips:
-        try:
-            addr = ipaddress.ip_address(ip_str)
-        except ValueError:
-            return False
+        try: addr = ipaddress.ip_address(ip_str)
+        except ValueError: return False
         if (addr.is_private or addr.is_loopback or addr.is_link_local
             or addr.is_reserved or addr.is_multicast or addr.is_unspecified):
             return False
@@ -143,7 +137,6 @@ def src_findomain(scan_id, domain):
     if code != 0: return set(), f"findomain: exit {code}: {out[-300:]!r}"
     return {x.strip().lower() for x in out.splitlines() if x.strip()}, None
 
-# --- الإضافة 1: حل مشكلة crt.sh لما السيرفر يقع ---
 def src_crtsh(scan_id, domain):
     url = f"https://crt.sh/?q=%25.{domain}&output=json"
     last_err = "Unknown error"
@@ -154,8 +147,7 @@ def src_crtsh(scan_id, domain):
                 if resp.status_code != 200:
                     time.sleep(2)
                     continue
-                try:
-                    data = resp.json()
+                try: data = resp.json()
                 except json.JSONDecodeError:
                     time.sleep(2)
                     continue
@@ -336,8 +328,17 @@ def run_httpx(scan_id, resolved, port_map, errors):
 
 def run_nuclei(scan_id, live_hosts, errors):
     if not live_hosts: return []
+    
+    # فلترة الروابط للـ 200 OK فقط قبل إرسالها لـ Nuclei
+    urls = []
+    for h in live_hosts:
+        status = h.get("status-code") or h.get("status_code")
+        if status == 200 and h.get("url"):
+            urls.append(h.get("url"))
+            
+    if not urls: return []
+    
     urls_file = SCAN_DIR / f"{scan_id}_urls.txt"
-    urls = [h.get("url") for h in live_hosts if h.get("url")]
     urls_file.write_text("\n".join(urls) + "\n")
     findings = []
     try:
@@ -351,7 +352,10 @@ def run_nuclei(scan_id, live_hosts, errors):
                     "template": data.get("template-id"),
                     "name": data.get("info", {}).get("name"),
                     "severity": data.get("info", {}).get("severity"),
-                    "confidence": "potential", 
+                    "confidence": "potential",
+                    "description": data.get("info", {}).get("description", "No description available"),
+                    "reference": data.get("info", {}).get("reference", []),
+                    "extracted_results": data.get("extracted-results", [])
                 })
             except json.JSONDecodeError: continue
     except Exception: pass
@@ -388,26 +392,6 @@ def url_host_is_safe(url):
         host = url.split("://", 1)[-1].split("/")[0].split(":")[0]
         return is_safe_target(host)
     except Exception: return False
-
-def run_arjun(endpoints, domain, errors, max_urls=15):
-    if not endpoints: return []
-    urls = [e["url"] for e in endpoints if e.get("url") and url_host_is_safe(e["url"])][:max_urls]
-    if not urls: return []
-    urls_file = SCAN_DIR / f"arjun_{os.getpid()}_{time.time_ns()}.txt"
-    out_file = SCAN_DIR / f"arjun_{os.getpid()}_{time.time_ns()}_out.json"
-    urls_file.write_text("\n".join(urls) + "\n")
-    discovered = []
-    try:
-        code, out, err = run_command(["arjun", "-i", str(urls_file), "-oJ", str(out_file), "-t", "5"], timeout=600)
-        if out_file.exists():
-            data = json.loads(out_file.read_text())
-            for url, params in data.items():
-                for param in params: discovered.append({"url": url, "method": "GET", "status": f"param: {param}"})
-    except Exception: pass
-    finally:
-        urls_file.unlink(missing_ok=True)
-        out_file.unlink(missing_ok=True)
-    return discovered
 
 def download_js_files(endpoints, scan_id, max_files=30):
     js_urls = [e["url"] for e in endpoints if e.get("url", "").endswith(".js") and url_host_is_safe(e["url"])][:max_files]
@@ -572,14 +556,12 @@ def run_scan(scan_id, domain, tools, user_id, project_id=None, discord_webhook=N
     errors = []
     tools = set(tools or [])
     
-    # --- الإضافة 2: الاعتماديات الضمنية (Implicit Dependencies) ---
-    if "trufflehog" in tools or "jsluice" in tools or "arjun" in tools:
+    if "trufflehog" in tools or "jsluice" in tools:
         tools.add("katana")  
     if "katana" in tools or "nuclei" in tools or "feroxbuster" in tools:
         tools.add("httpx")   
     if "httpx" in tools or "cdncheck" in tools:
         tools.add("dnsx")    
-    # -------------------------------------------------------------
         
     update(scan_id, status="running", progress="5")
     
@@ -629,10 +611,6 @@ def run_scan(scan_id, domain, tools, user_id, project_id=None, discord_webhook=N
     if "nuclei" in tools: vulnerabilities.extend(run_nuclei(scan_id, live_hosts, errors))
     update(scan_id, vulnerabilities=json.dumps(vulnerabilities), progress="75")
 
-    if "arjun" in tools:
-        endpoints.extend(run_arjun(endpoints, domain, errors))
-        update(scan_id, endpoints=json.dumps(endpoints))
-
     secrets, new_js_deps, js_cve_findings = [], [], []
     if "trufflehog" in tools or "jsluice" in tools or project_id:
         js_dir = download_js_files(endpoints, scan_id)
@@ -642,10 +620,7 @@ def run_scan(scan_id, domain, tools, user_id, project_id=None, discord_webhook=N
             detected_libs = fingerprint_js_libraries(js_dir, errors)
             new_js_deps, js_cve_findings = diff_js_dependencies(project_id, user_id, detected_libs, errors)
         finally:
-            pass  # تم إيقاف المسح مؤقتاً للاختبار ورؤية الملفات
-            # if js_dir:
-            #     for f in js_dir.glob("*"): f.unlink(missing_ok=True)
-            #     js_dir.rmdir()
+            pass  
     update(scan_id, secrets=json.dumps(secrets), new_js_dependencies=json.dumps(new_js_deps), js_cve_findings=json.dumps(js_cve_findings), progress="88")
 
     directories = []
@@ -654,7 +629,7 @@ def run_scan(scan_id, domain, tools, user_id, project_id=None, discord_webhook=N
 
     persist_to_supabase(
         scan_id, domain, tools, "completed", user_id,
-        subdomains=subdomains, unresolved=unresolved, alive=live_hosts, ports=[],
+        subdomains=subdomains, unresolved=unresolved, alive=live_hosts, ports=port_map,
         vulnerabilities=vulnerabilities, endpoints=endpoints, secrets=secrets, directories=directories,
         added_assets=added_assets, removed_assets=removed_assets, new_js_dependencies=new_js_deps, js_cve_findings=js_cve_findings,
         project_id=project_id, errors=errors,
@@ -666,7 +641,6 @@ def run_scan(scan_id, domain, tools, user_id, project_id=None, discord_webhook=N
         notify_msg += "\n⚠️ CRITICAL/HIGH:\n" + "\n".join([f"- {v.get('name')} on {v.get('host')}" for v in high_critical_vulns[:5]])
     send_notification(notify_msg, custom_discord_webhook=discord_webhook)
 
-# --- الإضافة 3: تشغيل 5 فحوصات متوازية (Concurrency) ---
 def process_job(job):
     scan_id = job["scan_id"]
     domain = job["domain"]
