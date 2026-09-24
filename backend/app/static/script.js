@@ -6,7 +6,7 @@ let networkInstance = null;
 
 // متغيرات الـ Pagination الجديدة
 let currentPage = 1;
-const rowsPerPage = 50;
+const rowsPerPage = 8;
 
 async function initAuth() {
   const { data, error } = await supabaseClient.auth.getSession();
