@@ -13,7 +13,8 @@ RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.6.6
 RUN go install -v github.com/tomnomnom/assetfinder@latest
 RUN go install -v github.com/projectdiscovery/httpx/cmd/httpx@v1.6.8
 RUN go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.3.7
-RUN go install -v github.com/lc/gau/v2/cmd/gau@v2.2.4
+RUN go install -v github.com/lc/gau/v2/cmd/gau@latest
+RUN go install -v github.com/tomnomnom/anew@latest
 
 RUN curl -sL https://github.com/projectdiscovery/katana/releases/download/v1.7.0/katana_1.7.0_linux_amd64.zip -o katana.zip \
     && unzip katana.zip -d /go/bin/ \
@@ -34,7 +35,7 @@ RUN go install -v github.com/d3mondev/puredns/v2@latest
 RUN CGO_ENABLED=1 go install -v github.com/BishopFox/jsluice/cmd/jsluice@latest
 
 RUN echo "GOPATH is: $(go env GOPATH)" && \
-    for bin in subfinder assetfinder httpx nuclei katana dnsx cdncheck alterx trufflehog jsluice puredns gau; do \
+    for bin in subfinder assetfinder httpx nuclei katana dnsx cdncheck alterx trufflehog jsluice puredns gau anew; do \
         test -x "$(go env GOPATH)/bin/$bin" || (echo "MISSING BINARY: $bin" && exit 1); \
     done
 
@@ -86,6 +87,7 @@ COPY --from=toolbuilder /go/bin/trufflehog /usr/local/bin/trufflehog
 COPY --from=toolbuilder /go/bin/jsluice /usr/local/bin/jsluice
 COPY --from=toolbuilder /go/bin/feroxbuster /usr/local/bin/feroxbuster
 COPY --from=toolbuilder /go/bin/gau /usr/local/bin/gau
+COPY --from=toolbuilder /go/bin/anew /usr/local/bin/anew
 
 # إعطاء صلاحيات التشغيل لكل الأدوات عشان نحل مشكلة massdns
 RUN chmod +x /usr/local/bin/*
