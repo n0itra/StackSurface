@@ -4,6 +4,10 @@ let currentSession = null;
 let currentScanData = null; 
 let networkInstance = null; 
 
+// متغيرات الـ Pagination الجديدة
+let currentPage = 1;
+const rowsPerPage = 50;
+
 async function initAuth() {
   const { data, error } = await supabaseClient.auth.getSession();
   if (data.session) {
@@ -95,7 +99,7 @@ function api(url, options = {}) {
     });
 }
 
-// --- ترتيب الأدوات المنطقي الجديد (تمت إزالة Arjun) ---
+// --- ترتيب الأدوات المنطقي الجديد ---
 const tools = [
   {key:"subfinder", icon:"⌁", desc:"Passive subdomain enumeration", tag:"Passive"},
   {key:"findomain", icon:"◎", desc:"Fast subdomain enumeration", tag:"Discovery"},
@@ -139,7 +143,6 @@ function buildDatasets(scan) {
   const alive = scan.alive || [];
   const vulnerabilities = scan.vulnerabilities || [];
 
-  // الإضافة 1: استخراج البورتات من Shodan
   let portsMap = {};
   try {
     if (typeof scan.ports === 'string') portsMap = JSON.parse(scan.ports);
@@ -187,7 +190,6 @@ function buildDatasets(scan) {
       ]),
       total: alive.length,
     },
-    // الإضافة 2: إضافة جدول البورتات
     ports: {
       title: "Open Ports",
       subtitle: `${portsList.length} open ports detected via Shodan`,
@@ -221,13 +223,13 @@ function buildDatasets(scan) {
       title: "Vulnerabilities",
       subtitle: `${vulnerabilities.length} template matches`,
       search: "Search vulnerabilities...",
-      columns: ["#", "Finding", "Host", "Severity", "Details"], // تم تغيير Confidence لـ Details
+      columns: ["#", "Finding", "Host", "Severity", "Details"],
       rows: vulnerabilities.map((v, i) => [
         String(i + 1), v.name || v.template || "-", v.host || "-",
         (v.severity || "info").replace(/^\w/, c => c.toUpperCase()),
-        `<button class="details-btn" onclick="window.openVulnModal(${i})">Info</button>` // زرار الـ Modal
+        `<button class="details-btn" onclick="window.openVulnModal(${i})">Info</button>`
       ]),
-      rawData: vulnerabilities, // لحفظ الداتا للـ Modal
+      rawData: vulnerabilities,
       total: vulnerabilities.length,
     },
     changes: {
@@ -320,19 +322,20 @@ function renderProgress() {
 function setProgress(idx,state,meta,pct) {
   const el = document.getElementById(`step-${idx}`);
   if(!el) return;
-  el.classList.remove("running","done","skipped");
+  el.classList.remove("running","done","skipped","waiting");
   el.classList.add(state);
   el.querySelector(".progress-meta").textContent = meta;
   el.querySelector(".progress-pct").textContent = pct ?? "—";
 }
 
+// ==== التعديل 1: كونسول محكوم بـ 70 سطر فقط ====
 function appendLog(text) {
   const stamp = new Date().toLocaleTimeString([], {hour12:false});
   consoleEl.textContent += `[${stamp}] ${text}\n`;
   
   const lines = consoleEl.textContent.split('\n');
-  if (lines.length > 600) {
-    consoleEl.textContent = lines.slice(-600).join('\n') + '\n';
+  if (lines.length > 70) {
+    consoleEl.textContent = lines.slice(-70).join('\n') + (consoleEl.textContent.endsWith('\n') ? '' : '\n');
   }
   
   consoleEl.scrollTop = consoleEl.scrollHeight;
@@ -428,9 +431,9 @@ async function runScan()  {
 
   resetProgress();
   stepMap.forEach(([key], idx) => {
-    setProgress(idx, selectedSet.has(key) ? "running" : "skipped",
-                selectedSet.has(key) ? "Queued..." : "Skipped by user",
-                selectedSet.has(key) ? "—" : "SKIP");
+    setProgress(idx, selectedSet.has(key) ? "waiting" : "skipped",
+                selectedSet.has(key) ? "Waiting in queue..." : "Skipped",
+                selectedSet.has(key) ? "0%" : "SKIP");
   });
 
   let scanId;
@@ -502,6 +505,31 @@ async function runScan()  {
       lastProgress = progress;
     }
 
+    stepMap.forEach(([key], idx) => {
+      if (!selectedSet.has(key)) return;
+
+      let stepProg = 0;
+      if (key === "subfinder" || key === "gau" || key === "anew") stepProg = progress < 18 ? progress : 100;
+      else if (key === "permutations") stepProg = progress < 25 ? (progress < 18 ? 0 : progress) : 100;
+      else if (key === "dnsx") stepProg = progress < 30 ? (progress < 25 ? 0 : progress) : 100;
+      else if (key === "cdncheck" || key === "shodan") stepProg = progress < 35 ? (progress < 30 ? 0 : progress) : 100;
+      else if (key === "httpx") stepProg = progress < 40 ? (progress < 35 ? 0 : progress) : 100;
+      else if (key === "katana") stepProg = progress < 60 ? (progress < 40 ? 0 : progress) : 100;
+      else if (key === "nuclei") stepProg = progress < 75 ? (progress < 60 ? 0 : progress) : 100;
+      else if (key === "jsluice" || key === "trufflehog") stepProg = progress < 88 ? (progress < 75 ? 0 : progress) : 100;
+      else if (key === "feroxbuster") stepProg = progress < 100 ? (progress < 88 ? 0 : progress) : 100;
+
+      if (scan.status === "completed" || scan.status === "failed") stepProg = 100;
+
+      if (stepProg === 0) {
+        setProgress(idx, "waiting", "Waiting in queue...", "0%");
+      } else if (stepProg > 0 && stepProg < 100) {
+        setProgress(idx, "running", "Scanning...", progress + "%");
+      } else {
+        setProgress(idx, "done", "Completed", "100%");
+      }
+    });
+
     currentScanData = scan;
     datasets = buildDatasets(scan);
     refreshResultTabs(scan, domain);
@@ -511,17 +539,12 @@ async function runScan()  {
       if (activeTab === "network") {
         drawNetworkGraph(currentScanData);
       } else {
+        currentPage = 1;
         renderTable(activeTab);
       }
     }
 
     if (scan.status === "completed" || scan.status === "failed") {
-      stepMap.forEach(([key], idx) => {
-        if (!selectedSet.has(key)) return;
-        setProgress(idx, "done", scan.status === "failed" ? "Finished with errors" : "Completed", "DONE");
-      });
-      (scan.errors || []).forEach(e => appendLog(`Note: ${e}`));
-
       statusDot.classList.remove("running");
       statusDot.classList.add("done");
       scanStatus.textContent = scan.status === "failed" ? "Failed" : "Completed";
@@ -548,7 +571,7 @@ async function runScan()  {
 function resetRunState() {
   running = false;
   startBtn.disabled = false;
-  startBtn.querySelector("span").textContent = "Start";
+  startBtn.querySelector("span").textContent = "Run Scan";
 }
 
 function goTo(page) {
@@ -584,7 +607,8 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function renderTable(tabKey, filter=""){
+// ==== التعديل 2: تفعيل ترقيم الصفحات (Pagination) حقيقي 50 نتيجة لكل صفحة ====
+window.renderTable = function(tabKey, filter="") {
   const data = datasets[tabKey];
   if (!data) return; 
   
@@ -609,18 +633,25 @@ function renderTable(tabKey, filter=""){
     </th>`;
   }).join("")}</tr>`;
   
-  const rows = data.rows.filter(r => r.join(" ").toLowerCase().includes(filter.toLowerCase()));
+  const allRows = data.rows.filter(r => r.join(" ").toLowerCase().includes(filter.toLowerCase()));
   
-  if (rows.length === 0) {
+  if (allRows.length === 0) {
     document.getElementById("tableBody").innerHTML = `<tr class="loading-row"><td colspan="${data.columns.length}">No data found or still scanning...</td></tr>`;
     document.getElementById("rowSummary").textContent = `Showing 0 results`;
     document.getElementById("pagination").innerHTML = "";
     return;
   }
 
-  document.getElementById("tableBody").innerHTML = rows.map(row => {
+  const totalPages = Math.ceil(allRows.length / rowsPerPage);
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+  
+  const startIdx = (currentPage - 1) * rowsPerPage;
+  const endIdx = startIdx + rowsPerPage;
+  const paginatedRows = allRows.slice(startIdx, endIdx);
+
+  document.getElementById("tableBody").innerHTML = paginatedRows.map(row => {
     return `<tr>${row.map((cell,i)=>{
-      // الإضافة 3: السماح بزرار الـ Info بدون Escape
       if (typeof cell === 'string' && cell.includes('class="details-btn"')) {
         return `<td>${cell}</td>`;
       }
@@ -638,13 +669,27 @@ function renderTable(tabKey, filter=""){
     }).join("")}</tr>`;
   }).join("");
   
-  document.getElementById("rowSummary").textContent = `Showing 1 to ${rows.length > 50 ? 50 : rows.length} of ${data.total} results`;
-  document.getElementById("pagination").innerHTML = [1,2,3,4,5,"…",10].map((n,i)=>
-    `<button class="page-btn ${i===0?"active":""}">${n}</button>`).join("");
+  document.getElementById("rowSummary").textContent = `Showing ${startIdx + 1} to ${Math.min(endIdx, allRows.length)} of ${allRows.length} results`;
+
+  let paginationHtml = "";
+  for (let i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+      paginationHtml += `<button class="page-btn ${i === currentPage ? "active" : ""}" onclick="changePage(${i})">${i}</button>`;
+    } else if (i === currentPage - 3 || i === currentPage + 3) {
+      paginationHtml += `<span style="color: var(--text-muted); margin: 0 4px;">...</span>`;
+    }
+  }
+  document.getElementById("pagination").innerHTML = paginationHtml;
 }
 
+window.changePage = function(pageNumber) {
+  currentPage = pageNumber;
+  const activeTab = document.querySelector(".result-tab.active").dataset.tab;
+  renderTable(activeTab, document.getElementById("tableSearch").value);
+};
+
 // -------------------------------------------------------------
-// الإضافة 4: النافذة المنبثقة (Modal) لزرار Info
+// النافذة المنبثقة (Modal) لزرار Info
 // -------------------------------------------------------------
 window.openVulnModal = function(index) {
   const v = datasets['vulnerabilities'].rawData[index];
@@ -705,6 +750,7 @@ window.sortTable = function(colIndex) {
     return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
   });
 
+  currentPage = 1; // الرجوع للصفحة الأولى بعد الفرز
   renderTable(activeTab, document.getElementById("tableSearch").value);
 };
 
@@ -782,6 +828,7 @@ window.loadScanFromHistory = async function(scanId) {
     if (tableCard) tableCard.style.display = "block";
     if (mapCard) mapCard.style.display = "none";
     
+    currentPage = 1;
     renderTable("subdomains");
     goTo("results");
   } catch (e) {
@@ -850,6 +897,7 @@ document.getElementById("saveProjectBtn").addEventListener("click", async () => 
 
 startBtn.addEventListener("click", runScan);
 
+// Presets
 document.getElementById("lightScanBtn").addEventListener("click", () => {
   document.querySelectorAll(".tool-row input:not(:disabled)").forEach(checkbox => {
     checkbox.checked = lightScanTools.includes(checkbox.dataset.tool);
@@ -905,6 +953,7 @@ document.getElementById("clearConsole").addEventListener("click", ()=>{
 
 document.getElementById("tableSearch").addEventListener("input", e=>{
   const active = document.querySelector(".result-tab.active").dataset.tab;
+  currentPage = 1;
   if(active !== "network") renderTable(active,e.target.value);
 });
 
@@ -916,6 +965,7 @@ document.querySelectorAll(".result-tab").forEach(tab => {
     
     sortCol = -1;
     sortAsc = true;
+    currentPage = 1;
     
     const targetTab = tab.dataset.tab;
     const tableCard = document.getElementById("tableCard");
@@ -938,7 +988,8 @@ document.getElementById("exportBtn").addEventListener("click", ()=>{
   if (active === "network") return alert("Can't export map directly to CSV. Export a table instead.");
   
   const data = datasets[active];
-  const csv = [data.columns.join(","), ...data.rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(","))].join("\n");
+  // تنظيف الزراير (HTML tags) من ملف הـ CSV
+  const csv = [data.columns.join(","), ...data.rows.map(r=>r.map(v=>`"${String(v).replace(/(<([^>]+)>)/gi, "").replaceAll('"','""')}"`).join(","))].join("\n");
   const blob = new Blob([csv], {type:"text/csv"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -953,7 +1004,8 @@ document.getElementById("downloadBtn").addEventListener("click", ()=>{
   if (activeTab === "network") return alert("Please select a table tab to download a PDF report.");
   
   const data = datasets[activeTab];
-  const reportHtml = `<!doctype html><html><head><meta charset="utf-8"><title>StackSurface Report</title><style>body{font-family:Arial,sans-serif;color:#17283a;padding:36px}h1{margin:0 0 8px;font-size:28px}.meta{color:#60758a;margin-bottom:28px}h2{font-size:18px;margin-top:28px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #d6e0e8;padding:9px;text-align:left;font-size:11px}th{background:#eef4f8}.footer{margin-top:28px;color:#71869a;font-size:10px}</style></head><body><h1>StackSurface Security Report</h1><div class="meta">Automated Recon • ${domain} • ${new Date().toLocaleString()}</div><h2>${data.title}</h2><p>${data.subtitle}</p><table><thead><tr>${data.columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${data.rows.map(r=>`<tr>${r.map(v=>`<td>${String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")}</td>`).join("")}</tr>`).join("")}</tbody></table><div class="footer">Generated by StackSurface.</div></body></html>`;
+  // تنظيف الزراير (HTML tags) من الـ PDF
+  const reportHtml = `<!doctype html><html><head><meta charset="utf-8"><title>StackSurface Report</title><style>body{font-family:Arial,sans-serif;color:#17283a;padding:36px}h1{margin:0 0 8px;font-size:28px}.meta{color:#60758a;margin-bottom:28px}h2{font-size:18px;margin-top:28px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #d6e0e8;padding:9px;text-align:left;font-size:11px}th{background:#eef4f8}.footer{margin-top:28px;color:#71869a;font-size:10px}</style></head><body><h1>StackSurface Security Report</h1><div class="meta">Automated Recon • ${domain} • ${new Date().toLocaleString()}</div><h2>${data.title}</h2><p>${data.subtitle}</p><table><thead><tr>${data.columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${data.rows.map(r=>`<tr>${r.map(v=>`<td>${String(v).replace(/(<([^>]+)>)/gi, "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")}</td>`).join("")}</tr>`).join("")}</tbody></table><div class="footer">Generated by StackSurface.</div></body></html>`;
   const reportWindow = window.open("", "_blank");
   if (!reportWindow) { alert("Please allow pop-ups to generate the PDF report."); return; }
   reportWindow.document.open(); reportWindow.document.write(reportHtml); reportWindow.document.close();
